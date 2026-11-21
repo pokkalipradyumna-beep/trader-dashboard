@@ -856,10 +856,24 @@ async function loadSuggestions() {
     renderHomeStats();
     renderFilters();
     renderHomeCards();
+    setLive();
   } catch (e) {
     $("homeStats").innerHTML = "";
     renderState($("homeCards"), { icon: "📡", title: "Scan failed", msg: "Couldn't run the scan. Check your connection and try again.", retry: true }, loadSuggestions);
   }
+}
+// quiet poll refreshers — re-fetch cached data and re-render without spinners/skeletons
+async function refreshHomeQuiet() {
+  if (!suggestions.length) return; // don't auto-scan if the user hasn't scanned yet
+  const d = await (await fetch("/api/scanner")).json();
+  const r = d.results || [];
+  if (r.length && !r.every((x) => x.category === "ERROR")) { suggestions = r; renderHomeStats(); renderHomeCards(); }
+}
+async function refreshScreenersQuiet() {
+  if (!screenData.length) return;
+  const d = await (await fetch("/api/scanner")).json();
+  const r = (d.results || []).filter((x) => x.category !== "ERROR");
+  if (r.length) { screenData = r; drawScreeners(); }
 }
 /* ---------- watchlist + star (R-7) ---------- */
 function updateStarBtn() {
@@ -883,13 +897,13 @@ function watchErrCard(x) {
       <div class="sc-id"><div class="sc-name">${x.name}</div><div class="sc-tkr">${x.symbol} · unavailable on the feed</div></div>
       <button class="cardstar on" data-star="${x.symbol}" data-sn="${(x.name || "").replace(/"/g, "&quot;")}" title="Remove from watchlist" style="margin-left:auto">★</button></div></div>`;
 }
-async function loadWatchlist() {
+async function loadWatchlist(quiet) {
   const w = getWatch();
   const box = $("watchCards");
   if (!box) return;
   box.className = "stocklist";
   if (!w.length) { box.innerHTML = stateBox({ icon: "★", title: "No watchlist yet", msg: "Star a stock from Home or any chart to track it here." }); return; }
-  box.innerHTML = skelCards(Math.min(w.length, 6));
+  if (!quiet || !box.querySelector(".stockcard")) box.innerHTML = skelCards(Math.min(w.length, 6));
   let rows;
   try {
     const d = await (await fetch("/api/scan?symbols=" + encodeURIComponent(w.map((x) => x.t).join(",")))).json();
@@ -906,6 +920,7 @@ async function loadWatchlist() {
   }
   box.innerHTML = rows.map((x) => (x._err ? watchErrCard(x) : cardHTML(x))).join("");
   wireStockCards(box);
+  setLive();
 }
 function loadScreeners() { if (typeof renderScreeners === "function") renderScreeners(); }
 function loadAlerts() { if (typeof renderAlerts === "function") renderAlerts(); }
@@ -1164,6 +1179,10 @@ async function pollTick() {
   try {
     if (active === "page-dashboard") await refreshHoldingsQuiet();
     else if (active === "page-search" && currentSym) await refreshQuoteQuiet();
+    else if (active === "page-home") await refreshHomeQuiet();
+    else if (active === "page-screeners") await refreshScreenersQuiet();
+    else if (active === "page-watchlist") await loadWatchlist(true);
+    else if (active === "page-reports") await renderReports(true);
     else return;
     setLive();
   } catch (e) { /* keep polling; transient feed hiccups are fine */ }
@@ -1237,14 +1256,14 @@ async function checkAlerts() {
 }
 
 /* ---------- Reports (N6) — portfolio + universe analytics from existing data ---------- */
-async function renderReports() {
+async function renderReports(quiet) {
   const body = $("reportsBody");
   if (!body) return;
-  body.innerHTML = '<div class="scanhint"><span class="spinner"></span>Building your report…</div>';
+  if (!quiet || !body.querySelector(".report-grid")) body.innerHTML = '<div class="scanhint"><span class="spinner"></span>Building your report…</div>';
   let hold, scan;
   try {
     [hold, scan] = await Promise.all([
-      (await fetch("/api/holdings")).json(),
+      computeHoldings(),   // browser-stored holdings (server GET is empty on Vercel)
       (await fetch("/api/scanner")).json(),
     ]);
   } catch (e) { renderState(body, { icon: "📡", title: "Couldn't build the report", msg: "Check your connection and try again.", retry: true }, renderReports); return; }
@@ -1274,6 +1293,7 @@ async function renderReports() {
     <div class="report-card"><h3>Portfolio allocation</h3>${alloc}</div>
     <div class="report-card"><h3>Top gainers · 1 week</h3>${gainers}</div>
     <div class="report-card"><h3>Top losers · 1 week</h3>${losers}</div></div>`;
+  setLive();
 }
 
 /* ---------- Screeners (N4) — filters the universe, reuses scanner data ---------- */
@@ -1289,6 +1309,7 @@ async function renderScreeners() {
     } catch (e) { renderState(body, { icon: "📡", title: "Couldn't load the universe", msg: "Check your connection and try again.", retry: true }, renderScreeners); return; }
   }
   drawScreeners();
+  setLive();
 }
 function drawScreeners() {
   const body = $("screenBody"), f = screenFilters;
