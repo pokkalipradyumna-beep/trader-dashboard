@@ -248,7 +248,7 @@ button{font-family:inherit}
 .rmbtn:hover{color:#f87171;border-color:var(--sell)}
 .hold-sub{color:var(--dim);font-size:12px;margin-top:2px}
 @keyframes valflash{0%{background:rgba(var(--accent-rgb),.24)}100%{background:transparent}}
-.hold-v.flash,.stat .v.flash{animation:valflash .9s ease-out;border-radius:5px;margin:-1px -3px;padding:1px 3px}
+.hold-v.flash,.stat .v.flash,.sc-p.flash{animation:valflash .9s ease-out;border-radius:5px;margin:-1px -3px;padding:1px 3px}
 
 /* dashboard polish (R-6) */
 .alertbar{display:flex;align-items:flex-start;gap:12px;background:rgba(240,68,68,.1);

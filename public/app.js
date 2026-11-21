@@ -745,7 +745,9 @@ function cardHTML(x) {
   const chg = x.chg1w;
   const chgHtml = chg == null ? "" : `<span class="sc-chg ${chg >= 0 ? "up" : "down"}">${chg >= 0 ? "+" : ""}${chg}%</span>`;
   const nm = (x.name || x.symbol).replace(/"/g, "&quot;");
-  return `<div class="card stockcard" data-sym="${x.symbol}" tabindex="0" role="button" aria-label="${nm}, ${x.category}">
+  // weekly prev-close, stored so the live poll can recompute the weekly % from a fresh price
+  const pc = (x.chg1w != null && x.price) ? (x.price / (1 + x.chg1w / 100)) : "";
+  return `<div class="card stockcard" data-sym="${x.symbol}" data-pc="${pc}" tabindex="0" role="button" aria-label="${nm}, ${x.category}">
       <div class="sc-top">
         ${logoTile(x.name, x.symbol)}
         <div class="sc-id"><div class="sc-name">${x.name || x.symbol}</div><div class="sc-tkr">${x.symbol}</div></div>
@@ -862,18 +864,27 @@ async function loadSuggestions() {
     renderState($("homeCards"), { icon: "📡", title: "Scan failed", msg: "Couldn't run the scan. Check your connection and try again.", retry: true }, loadSuggestions);
   }
 }
-// quiet poll refreshers — re-fetch cached data and re-render without spinners/skeletons
-async function refreshHomeQuiet() {
-  if (!suggestions.length) return; // don't auto-scan if the user hasn't scanned yet
-  const d = await (await fetch("/api/scanner")).json();
-  const r = d.results || [];
-  if (r.length && !r.every((x) => x.category === "ERROR")) { suggestions = r; renderHomeStats(); renderHomeCards(); }
-}
-async function refreshScreenersQuiet() {
-  if (!screenData.length) return;
-  const d = await (await fetch("/api/scanner")).json();
-  const r = (d.results || []).filter((x) => x.category !== "ERROR");
-  if (r.length) { screenData = r; drawScreeners(); }
+// Live-price in-place updater for the card lists (Home / Screeners / Watchlist).
+// Uses the 15s quote cache (same source as the Dashboard) so these pages are
+// genuinely fresh every poll — the scanner (signals/categories, 5-min cache) is
+// refreshed on page load and manual Refresh, not on every tick.
+async function updateCardPricesInPlace(container) {
+  if (!container) return;
+  const cards = [...container.querySelectorAll(".stockcard[data-sym]")];
+  if (!cards.length) return;
+  const syms = [...new Set(cards.map((c) => (c.dataset.sym || "").toUpperCase()))].filter(Boolean).slice(0, 50);
+  if (!syms.length) return;
+  const d = await (await fetch("/api/quote?symbols=" + encodeURIComponent(syms.join(",")))).json();
+  const q = d.quotes || {};
+  cards.forEach((card) => {
+    const qt = q[(card.dataset.sym || "").toUpperCase()];
+    if (!qt || qt.error || qt.price == null) return;
+    const pEl = card.querySelector(".sc-p");
+    if (pEl) { const nv = "₹" + fmt(qt.price); if (pEl.textContent !== nv) { pEl.textContent = nv; flashEl(pEl); } }
+    const pc = parseFloat(card.dataset.pc);
+    const cEl = card.querySelector(".sc-chg");
+    if (cEl && pc > 0) { const chg = (qt.price / pc - 1) * 100; cEl.textContent = (chg >= 0 ? "+" : "") + chg.toFixed(2) + "%"; cEl.className = "sc-chg " + (chg >= 0 ? "up" : "down"); }
+  });
 }
 /* ---------- watchlist + star (R-7) ---------- */
 function updateStarBtn() {
@@ -1179,9 +1190,9 @@ async function pollTick() {
   try {
     if (active === "page-dashboard") await refreshHoldingsQuiet();
     else if (active === "page-search" && currentSym) await refreshQuoteQuiet();
-    else if (active === "page-home") await refreshHomeQuiet();
-    else if (active === "page-screeners") await refreshScreenersQuiet();
-    else if (active === "page-watchlist") await loadWatchlist(true);
+    else if (active === "page-home") await updateCardPricesInPlace($("homeCards"));
+    else if (active === "page-screeners") await updateCardPricesInPlace(document.querySelector("#screenBody .stocklist"));
+    else if (active === "page-watchlist") await updateCardPricesInPlace($("watchCards"));
     else if (active === "page-reports") await renderReports(true);
     else return;
     setLive();
@@ -1269,6 +1280,24 @@ async function renderReports(quiet) {
   } catch (e) { renderState(body, { icon: "📡", title: "Couldn't build the report", msg: "Check your connection and try again.", retry: true }, renderReports); return; }
   const rows = (scan.results || []).filter((x) => x.category !== "ERROR");
   const H = hold.holdings || [];
+  // Live-price override so Reports matches the 15s Dashboard freshness: re-value
+  // holdings from the quote cache. Exit codes/signals stay from the full load
+  // (they only change on a weekly candle close).
+  try {
+    const hsyms = [...new Set(H.filter((h) => h.code !== "ERROR" && h.symbol).map((h) => h.symbol.toUpperCase()))].slice(0, 50);
+    if (hsyms.length) {
+      const qd = await (await fetch("/api/quote?symbols=" + encodeURIComponent(hsyms.join(",")))).json();
+      const q = qd.quotes || {};
+      let tv = 0, ti = 0;
+      H.forEach((h) => {
+        const qt = q[(h.symbol || "").toUpperCase()];
+        if (qt && !qt.error && qt.price != null) { h.price = qt.price; h.value = (h.qty || 0) * qt.price; }
+        tv += h.value || 0; ti += (h.qty || 0) * (h.buy_price || 0);
+      });
+      hold.total_value = tv; hold.total_invested = ti; hold.total_pl = tv - ti;
+      hold.total_pl_pct = ti ? Math.round((tv - ti) / ti * 1000) / 10 : 0;
+    }
+  } catch (e) { /* keep the server-computed totals if the quote fetch fails */ }
   const plc = hold.total_pl >= 0 ? "green" : "red";
   const sc = (cls, ic, v, l) => `<div class="statcard ${cls}"><div class="st-ic">${statIcon(ic)}</div><div class="st-t"><div class="st-v">${v}</div><div class="st-l">${l}</div></div></div>`;
   const stats = `<div class="statrow">
@@ -1369,14 +1398,21 @@ async function loadMktSpark() {
     if (closes.length >= 2) box.innerHTML = sparkSVG(closes);
   } catch (e) { /* no sparkline if the index series is unavailable */ }
 }
+function istDateStr(ms) { return new Date(ms + 330 * 60000).toISOString().slice(0, 10); } // YYYY-MM-DD in IST
+function isTodayIST(unixSec) { return !!unixSec && istDateStr(unixSec * 1000) === istDateStr(Date.now()); }
 async function loadMarket() {
-  const open = nseOpen();
-  const pill = $("mktPill");
-  if (pill) { pill.className = "mkt-pill " + (open ? "open" : "closed"); const t = $("mktPillTxt"); if (t) t.textContent = open ? "Market Open" : "Market Closed"; }
+  const pill = $("mktPill"), t = $("mktPillTxt");
+  const setPill = (open) => { if (pill) pill.className = "mkt-pill " + (open ? "open" : "closed"); if (t) t.textContent = open ? "Market Open" : "Market Closed"; };
+  setPill(nseOpen()); // optimistic time-based until the live quote confirms
   try {
     const d = await (await fetch("/api/quote?symbols=" + encodeURIComponent("^NSEI,^BSESN"))).json();
     const q = d.quotes || {};
     setIdx("nifty", q["^NSEI"]); setIdx("sensex", q["^BSESN"]);
+    // Honest open/closed: "Open" only when inside NSE hours AND the latest index
+    // quote is from TODAY (IST). On a holiday the quote stays on the prior trading
+    // day, so this reads "Closed" — no hardcoded holiday calendar needed.
+    const asOf = (q["^NSEI"] || {}).as_of || (q["^BSESN"] || {}).as_of;
+    if (asOf) setPill(nseOpen() && isTodayIST(asOf));
   } catch (e) { setIdx("nifty", null); setIdx("sensex", null); }
   loadMktSpark();
 }
