@@ -1,0 +1,9 @@
+# Render blueprint — deploy with one click after connecting the repo.
+# Render injects $PORT automatically; the server reads it.
+services:
+  - type: web
+    name: trader-dashboard
+    runtime: docker
+    plan: free
+    healthCheckPath: /healthz
+    autoDeploy: true

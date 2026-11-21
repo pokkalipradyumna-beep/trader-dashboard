@@ -1,0 +1,30 @@
+# Secrets — never commit
+.env
+.env.*
+*.key
+*.pem
+secrets.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Vercel
+.vercel/
+
+# Node (only if you install the Vercel CLI locally)
+node_modules/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.log
+
+# Claude Code workspace
+.claude/
+
+# Personal holdings data — keep local only
+holdings.json

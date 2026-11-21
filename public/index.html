@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Trader</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230a0c10'/%3E%3Ccircle cx='16' cy='16' r='7.5' fill='none' stroke='%232f6bff' stroke-width='3'/%3E%3Ccircle cx='16' cy='16' r='2.6' fill='%232f6bff'/%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" />
+  <link rel="stylesheet" href="styles.css" />
+  <script src="https://unpkg.com/lightweight-charts@5.3.0/dist/lightweight-charts.standalone.production.js"></script>
+</head>
+<body>
+  <div class="app">
+    <!-- SIDEBAR -->
+    <aside class="sidebar">
+      <div class="side-brand">
+        <span class="side-logo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 16l5-6 4 3 5-8 4 5"/></svg></span>
+        <span class="side-name">Trader</span>
+      </div>
+      <nav class="side-nav">
+        <button class="side-link active" data-page="home"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg><span>Home</span></button>
+        <button class="side-link" data-page="watchlist"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12v18l-6-4-6 4V3z"/></svg><span>Watchlist</span></button>
+        <button class="side-link" data-page="screeners"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 3 8l9 5 9-5-9-5z"/><path d="M3 13l9 5 9-5"/></svg><span>Screeners</span></button>
+        <button class="side-link" data-page="alerts"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9a6 6 0 1 1 12 0c0 5 2 6 2 6H4s2-1 2-6z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg><span>Alerts</span></button>
+        <button class="side-link" data-page="reports"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3h8l4 4v14H7z"/><path d="M14 3v5h5"/></svg><span>Reports</span></button>
+      </nav>
+      <div class="market" id="marketWidget">
+        <div class="market-head"><span>Market</span><span class="market-state" id="marketState">●</span></div>
+        <div id="marketRows" class="market-rows"></div>
+      </div>
+    </aside>
+
+    <!-- MAIN COLUMN -->
+    <div class="maincol">
+      <header class="topbar">
+        <div class="topnav">
+          <button class="navlink active" data-page="home"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg>Home</button>
+          <button class="navlink" data-page="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4-4"/></svg>Search</button>
+          <button class="navlink" data-page="dashboard"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>Dashboard</button>
+          <button class="navlink" data-page="watchlist"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12v18l-6-4-6 4V3z"/></svg>Watchlist</button>
+        </div>
+        <div class="topright">
+          <span class="feedbadge" title="Delayed data, research only">● Delayed · not advice</span>
+          <div class="setbox">
+            <button id="bellBtn" class="iconbtn bell" title="Alerts" aria-label="Alerts"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9a6 6 0 1 1 12 0c0 5 2 6 2 6H4s2-1 2-6z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg><span id="bellDot" class="bell-dot hidden"></span></button>
+          </div>
+          <div class="setbox">
+            <button id="setBtn" class="iconbtn" title="Settings" aria-label="Settings">⚙</button>
+            <div id="setPanel" class="setpanel hidden"></div>
+          </div>
+          <div class="avatar" title="You">P</div>
+        </div>
+      </header>
+
+      <main class="content">
+        <!-- HOME -->
+        <section id="page-home" class="page active">
+          <div class="pagehead">
+            <div>
+              <h1>Home</h1>
+              <p class="sub">Your watchlist and today’s method picks — quality first, timed by the weekly 9/21 &amp; 21/50 crossovers.</p>
+            </div>
+            <button id="refreshHome" class="btn ghost">↻ Refresh</button>
+          </div>
+          <div id="homeStats" class="statrow"></div>
+          <div id="homeFilters" class="filterwrap hidden"></div>
+          <div id="homeCards" class="stocklist"></div>
+        </section>
+
+        <!-- SEARCH -->
+        <section id="page-search" class="page">
+          <div class="searchwrap">
+            <input id="searchInput" class="searchbox" placeholder="Search a stock — type a name or symbol (e.g. Adani)" autocomplete="off" />
+            <div id="searchDrop" class="dropdown hidden"></div>
+          </div>
+          <div id="searchEmpty" class="empty">Search a stock to see its chart and signal.</div>
+          <div id="detail" class="detail hidden">
+            <div class="chartcard">
+              <div class="chart-head">
+                <div>
+                  <span id="cSym" class="csym">—</span>
+                  <span id="cPrice" class="cprice"></span>
+                  <span id="cChg" class="cchg"></span>
+                  <div id="cFresh" class="cfresh"></div>
+                  <span id="liveChart" class="liveago"></span>
+                </div>
+                <div class="chart-head-right">
+                  <div class="tfbtns">
+                    <button class="tfbtn" data-tf="D">D</button>
+                    <button class="tfbtn active" data-tf="W">W</button>
+                    <button class="tfbtn" data-tf="M">M</button>
+                  </div>
+                  <div class="emabox">
+                    <button id="emaBtn" class="tfbtn emabtn" title="Indicators — EMAs &amp; RSI">ƒ Indicators</button>
+                    <div id="emaPop" class="emapop hidden"></div>
+                  </div>
+                  <button id="starBtn" class="iconbtn star" title="Add to watchlist" aria-label="Watchlist">☆</button>
+                  <button id="addHoldBtn" class="addbtn chart" title="Add to your holdings">+ Holdings</button>
+                </div>
+              </div>
+              <div class="chart-area">
+                <div id="chartLegend" class="chartlegend"></div>
+                <div id="chartLoading" class="chart-loading hidden"><span class="spinner"></span>Loading chart…</div>
+                <div id="chartError" class="chart-error hidden"></div>
+                <div id="chart"></div>
+              </div>
+              <div id="chartMsg" class="chartmsg"></div>
+            </div>
+            <aside id="detailPanel" class="detailpanel"></aside>
+          </div>
+        </section>
+
+        <!-- DASHBOARD -->
+        <section id="page-dashboard" class="page">
+          <div class="pagehead">
+            <div><h1>My Dashboard</h1><p class="sub">Your holdings — and when to exit. <span id="liveDash" class="liveago"></span></p></div>
+            <button id="refreshDash" class="btn ghost">↻ Refresh</button>
+          </div>
+          <div id="dashAlert"></div>
+          <div id="dashSummary" class="summary"></div>
+          <form id="holdAdd" class="holdadd">
+            <div class="acwrap"><input id="hSym" placeholder="Add a stock (name or symbol)" autocomplete="off" />
+              <div id="hSymDrop" class="dropdown hidden"></div></div>
+            <input id="hQty" type="number" min="0" step="any" placeholder="Qty" />
+            <input id="hBuy" type="number" min="0" step="any" placeholder="Buy price (optional)" />
+            <button type="submit" class="btn">Add</button>
+          </form>
+          <div id="dashHoldings" class="stocklist"></div>
+        </section>
+
+        <!-- WATCHLIST -->
+        <section id="page-watchlist" class="page">
+          <div class="pagehead">
+            <div><h1>Watchlist</h1><p class="sub">Stocks you’re tracking — tap the ★ on any card to add or remove.</p></div>
+            <button id="refreshWatch" class="btn ghost">↻ Refresh</button>
+          </div>
+          <div id="watchCards" class="cards"></div>
+        </section>
+
+        <!-- SCREENERS -->
+        <section id="page-screeners" class="page">
+          <div class="pagehead">
+            <div><h1>Screeners</h1><p class="sub">Filter your universe by quality, valuation, confluence and the method signal.</p></div>
+          </div>
+          <div id="screenBody"><div class="empty">Coming in this redesign.</div></div>
+        </section>
+
+        <!-- ALERTS -->
+        <section id="page-alerts" class="page">
+          <div class="pagehead">
+            <div><h1>Alerts</h1><p class="sub">Get notified when a price or the weekly signal crosses your level.</p></div>
+          </div>
+          <div id="alertsBody"><div class="empty">Coming in this redesign.</div></div>
+        </section>
+
+        <!-- REPORTS -->
+        <section id="page-reports" class="page">
+          <div class="pagehead">
+            <div><h1>Reports</h1><p class="sub">Your portfolio and the universe at a glance.</p></div>
+          </div>
+          <div id="reportsBody"><div class="empty">Coming in this redesign.</div></div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <div id="toasts" class="toastwrap"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

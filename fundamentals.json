@@ -1,0 +1,31 @@
+{
+  "_note": "Curated quality metrics from screener.in (manual, periodic). NOT live. Update as_of when refreshed. Banks use type=bank (different gates). Non-bank gates: ROE>=15, ROCE>=15, rev/profit CAGR>=10, D/E<=1, promoter>=50, P/E<=35, P/B<=6.",
+  "as_of": "2026-11-19",
+  "source": "screener.in consolidated (manual)",
+  "companies": {
+    "SUNPHARMA.NS": {"name": "Sun Pharma", "type": "pharma", "roe": 16, "roce": 20.5, "rev_cagr": 10, "profit_cagr": 11, "de": 0.06, "promoter": 52.7, "pe": 37.0, "pb": 5.1, "fcf_positive": true, "ebitda_cr": 16501, "net_debt_cr": -13208, "shares_cr": 240, "fcf_cr": 8906},
+    "EICHERMOT.NS": {"name": "Eicher Motors", "type": "auto", "roe": 24, "roce": 30.5, "rev_cagr": 17, "profit_cagr": 24, "de": 0.02, "promoter": 49.0, "pe": 35.2, "pb": 8.4, "fcf_positive": true},
+    "CAPLIPOINT.NS": {"name": "Caplin Point", "type": "pharma", "roe": 17, "roce": 17.7, "rev_cagr": 14, "profit_cagr": 20, "de": 0.0, "promoter": 70.6, "pe": 29.7, "pb": 4.9, "fcf_positive": true, "ebitda_cr": 765, "net_debt_cr": -961, "shares_cr": 7.5, "fcf_cr": 275},
+    "AJANTPHARM.NS": {"name": "Ajanta Pharma", "type": "pharma", "roe": 27, "roce": 26.5, "rev_cagr": 13, "profit_cagr": 22, "de": 0.03, "promoter": 63.5, "pe": 39.6, "pb": 8.6, "fcf_positive": true, "ebitda_cr": 1500, "net_debt_cr": -466, "shares_cr": 12.5, "fcf_cr": 169},
+    "TCS.NS": {"name": "TCS", "type": "it", "roe": 41.6, "roce": 51.1, "rev_cagr": 6, "profit_cagr": 5, "de": 0.1, "promoter": 71.8, "pe": 14.7, "pb": 7.3, "fcf_positive": true},
+    "RELIANCE.NS": {"name": "Reliance", "type": "conglomerate", "roe": 9, "roce": 10.3, "rev_cagr": 6, "profit_cagr": 5, "de": 0.45, "promoter": 50.4, "pe": 22.5, "pb": 2.0, "fcf_positive": true},
+    "IOC.NS": {"name": "Indian Oil", "type": "oil", "roe": 17, "roce": 18.7, "rev_cagr": -2, "profit_cagr": 62, "de": 0.60, "promoter": 51.5, "pe": 4.4, "pb": 0.9, "fcf_positive": true, "flag": "cyclical; govt-priced; profit CAGR off a low base"},
+    "APOLLOHOSP.NS": {"name": "Apollo Hospitals", "type": "hospital", "roe": 18, "roce": 17.4, "rev_cagr": 15, "profit_cagr": 33, "de": 0.90, "promoter": 28.0, "pe": 55.8, "pb": 11.0, "fcf_positive": true},
+    "ICICIBANK.NS": {"name": "ICICI Bank", "type": "bank", "roe": 16.5, "nim": 4.18, "gnpa": 1.20, "nnpa": 0.30, "deposit_growth": 15, "promoter": 0, "pe": 19.5, "pb": 3.0},
+    "SBIN.NS": {"name": "State Bank of India", "type": "bank", "roe": 16.2, "nim": null, "gnpa": 1.39, "nnpa": 0.36, "deposit_growth": 11, "promoter": 55.45, "pe": 13.0, "pb": 1.7},
+    "HDFCBANK.NS": {"name": "HDFC Bank", "type": "bank", "roe": 14.0, "nim": null, "gnpa": 1.11, "nnpa": 0.37, "deposit_growth": 18, "promoter": 0, "pe": 16.5, "pb": 2.17},
+    "NMDC.NS": {"name": "NMDC", "type": "mining", "roe": 24, "roce": 27.6, "rev_cagr": 22, "profit_cagr": 17, "de": 0.19, "promoter": 60.8, "pe": 8.1, "pb": 1.6, "fcf_positive": true, "ebitda_cr": 9260, "net_debt_cr": 5920, "shares_cr": 879, "fcf_cr": 1826, "flag": "cyclical iron-ore; quality is cycle-dependent"},
+    "CUMMINSIND.NS": {"name": "Cummins India", "type": "capgoods", "roe": 29, "roce": 39.5, "rev_cagr": 16, "profit_cagr": 24, "de": 0.0, "promoter": 51.0, "pe": 50.4, "pb": 14.0, "fcf_positive": true, "ebitda_cr": 2595, "net_debt_cr": -2116, "shares_cr": 27.5, "fcf_cr": 1487},
+    "MARUTI.NS": {"name": "Maruti Suzuki", "type": "auto", "roe": 16, "roce": 18.9, "rev_cagr": 16, "profit_cagr": 21, "de": 0.0, "promoter": 58.7, "pe": 29.3, "pb": 3.6, "fcf_positive": true, "ebitda_cr": 21530, "net_debt_cr": -76736, "shares_cr": 31.4, "fcf_cr": 8754},
+    "M&M.NS": {"name": "Mahindra & Mahindra", "type": "auto", "roe": 20, "roce": 15.1, "rev_cagr": 18, "profit_cagr": 23, "de": 1.47, "promoter": 18.4, "pe": 20.8, "pb": 4.0, "fcf_positive": true, "flag": "D/E inflated by NBFC arm"},
+    "COALINDIA.NS": {"name": "Coal India", "type": "mining", "roe": 40, "roce": 35, "rev_cagr": 7, "profit_cagr": -1, "de": 0.12, "promoter": 61, "pe": 7.35, "pb": 1.94, "fcf_positive": true, "ebitda_cr": 37172, "net_debt_cr": 3846, "shares_cr": 616, "fcf_cr": 30783, "flag": "profits flat/declining; coal-transition headwind"},
+    "INFY.NS": {"name": "Infosys", "type": "it", "roe": 31, "roce": 40, "rev_cagr": 7, "profit_cagr": 8, "de": 0.09, "promoter": 13.9, "pe": 14.7, "pb": 4.7, "fcf_positive": true},
+    "ADANIPOWER.NS": {"name": "Adani Power", "type": "power", "roe": 32, "roce": 17.2, "rev_cagr": 12, "profit_cagr": 6, "de": 0.84, "promoter": 75, "pe": 22.2, "pb": 2.5, "fcf_positive": false, "flag": "negative FCF; interest-capitalisation flag; Adani governance"},
+    "NATCOPHARM.NS": {"name": "Natco Pharma", "type": "pharma", "roe": 23, "roce": 17.4, "rev_cagr": 15, "profit_cagr": 27, "de": 0.08, "promoter": 46.2, "pe": 19.6, "pb": 3.0, "fcf_positive": true},
+    "IPCALAB.NS": {"name": "Ipca Labs", "type": "pharma", "roe": 13, "roce": 17, "rev_cagr": 16, "profit_cagr": 37, "de": 0.10, "promoter": 44.7, "pe": 32.8, "pb": 5.5, "fcf_positive": true},
+    "AUROPHARMA.NS": {"name": "Aurobindo Pharma", "type": "pharma", "roe": 11, "roce": 12.9, "rev_cagr": 11, "profit_cagr": 23, "de": 0.22, "promoter": 51.9, "pe": 25.4, "pb": 2.5, "fcf_positive": true},
+    "JBCHEPHARM.NS": {"name": "JB Chemicals", "type": "pharma", "roe": 19, "roce": 25.4, "rev_cagr": 10, "profit_cagr": 21, "de": 0.0, "promoter": 48.8, "pe": 53.8, "pb": 9.3, "fcf_positive": true},
+    "BALKRISIND.NS": {"name": "Balkrishna Inds", "type": "auto", "roe": 14, "roce": 11.2, "rev_cagr": 4, "profit_cagr": 4, "de": 0.38, "promoter": 58.3, "pe": 31.1, "pb": 4.0, "fcf_positive": false},
+    "JINDALSTEL.NS": {"name": "Jindal Steel", "type": "metals", "roe": 10, "roce": 9.7, "rev_cagr": 0, "profit_cagr": 1, "de": 0.44, "promoter": 62.7, "pe": 35.1, "pb": 2.0, "fcf_positive": false}
+  }
+}
