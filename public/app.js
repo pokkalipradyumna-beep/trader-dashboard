@@ -620,7 +620,7 @@ function attachAutocomplete(input, drop, onPick) {
   input.addEventListener("input", () => { idx = -1; show(); });
   input.addEventListener("keydown", (e) => {
     if (drop.classList.contains("hidden")) {
-      if (e.key === "Enter" && input.id === "searchInput" && input.value.trim()) {
+      if (e.key === "Enter" && (input.id === "searchInput" || input.id === "globalSearch") && input.value.trim()) {
         e.preventDefault();
         let s = input.value.trim().toUpperCase(); if (!s.includes(".")) s += ".NS";
         loadStock(s);
@@ -636,6 +636,17 @@ function attachAutocomplete(input, drop, onPick) {
 }
 attachAutocomplete($("searchInput"), $("searchDrop"), (s) => loadStock(s.t));
 attachAutocomplete($("hSym"), $("hSymDrop"), (s) => { $("hSym").value = s.t; $("hBuy").focus(); });
+// top-bar global search → load the stock (navigates to the chart view)
+if ($("globalSearch")) {
+  attachAutocomplete($("globalSearch"), $("globalSearchDrop"), (s) => { loadStock(s.t); $("globalSearch").value = ""; });
+  // "/" focuses search (unless already typing in a field)
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "/" && !/^(INPUT|TEXTAREA|SELECT)$/.test((e.target.tagName || "")) && !e.target.isContentEditable) {
+      e.preventDefault(); $("globalSearch").focus();
+    }
+  });
+}
+if ($("profileBtn")) $("profileBtn").addEventListener("click", () => showToast("Single-user app — your data stays in this browser.", "ok"));
 
 /* ---------- toast + add-to-holdings (R-5) ---------- */
 function showToast(msg, kind) {
@@ -664,6 +675,16 @@ function inBand(price, band) {
   if (band === "mid") return price >= 200 && price < 1000;
   if (band === "high") return price >= 1000;
   return true;
+}
+let sortMode = "signal";
+const SORTS = [["signal", "Signal Strength"], ["priceDesc", "Price: High → Low"], ["priceAsc", "Price: Low → High"], ["chg", "1W Change"], ["name", "Name A–Z"]];
+function sortRows(rows) {
+  const r = rows.slice();
+  if (sortMode === "priceDesc") r.sort((a, b) => (b.price == null ? -1 : b.price) - (a.price == null ? -1 : a.price));
+  else if (sortMode === "priceAsc") r.sort((a, b) => (a.price == null ? 1e12 : a.price) - (b.price == null ? 1e12 : b.price));
+  else if (sortMode === "chg") r.sort((a, b) => (b.chg1w == null ? -1e9 : b.chg1w) - (a.chg1w == null ? -1e9 : a.chg1w));
+  else if (sortMode === "name") r.sort((a, b) => (a.name || a.symbol).localeCompare(b.name || b.symbol));
+  return r; // "signal" keeps the server's rank order
 }
 const FILTER_ORDER = ["STRONG BUY", "BUY", "HOLD", "WAIT", "CHART-ONLY", "SELL"];
 function whyText(x) {
@@ -751,16 +772,23 @@ function renderFilters() {
   f.classList.remove("hidden");
   const catChips = cats.map((c) =>
     `<button class="chip${c === activeFilter ? " active" : ""}" data-f="${c}">${c === "ALL" ? "All" : c}<span class="n">${counts[c]}</span></button>`).join("");
-  const priceChips = PRICE_BANDS.map((p) => {
+  const priceOpts = PRICE_BANDS.map((p) => {
     const n = p.v ? suggestions.filter((x) => inBand(x.price, p.v)).length : suggestions.length;
-    return `<button class="chip${priceBand === p.v ? " active" : ""}" data-pb="${p.v}">${p.t}${p.v ? `<span class="n">${n}</span>` : ""}</button>`;
+    return `<option value="${p.v}"${priceBand === p.v ? " selected" : ""}>${p.t}${p.v ? ` (${n})` : ""}</option>`;
   }).join("");
-  f.innerHTML = `<div class="filters">${catChips}</div>
-    <div class="filters pricefilters"><span class="filterlbl">Price</span>${priceChips}</div>`;
+  const sortOpts = SORTS.map(([v, t]) => `<option value="${v}"${sortMode === v ? " selected" : ""}>${t}</option>`).join("");
+  f.innerHTML = `<div class="filterbar">
+      <div class="filters">${catChips}</div>
+      <div class="filtertools">
+        <label class="ftl">Price <select id="fPrice" class="fsel">${priceOpts}</select></label>
+        <label class="ftl">Sort <select id="fSort" class="fsel">${sortOpts}</select></label>
+      </div></div>`;
   f.querySelectorAll("[data-f]").forEach((b) =>
     b.addEventListener("click", () => { activeFilter = b.dataset.f; renderFilters(); renderHomeCards(); }));
-  f.querySelectorAll("[data-pb]").forEach((b) =>
-    b.addEventListener("click", () => { priceBand = b.dataset.pb; renderFilters(); renderHomeCards(); }));
+  const ps = document.getElementById("fPrice");
+  if (ps) ps.addEventListener("change", () => { priceBand = ps.value; renderHomeCards(); });
+  const ss = document.getElementById("fSort");
+  if (ss) ss.addEventListener("change", () => { sortMode = ss.value; renderHomeCards(); });
 }
 function statIcon(kind) {
   const I = {
@@ -806,8 +834,8 @@ function wireStockCards(box) {
 }
 function renderHomeCards() {
   const box = $("homeCards");
-  const rows = suggestions.filter((x) =>
-    (activeFilter === "ALL" || x.category === activeFilter) && inBand(x.price, priceBand));
+  const rows = sortRows(suggestions.filter((x) =>
+    (activeFilter === "ALL" || x.category === activeFilter) && inBand(x.price, priceBand)));
   box.innerHTML = rows.map(cardHTML).join("")
     || stateBox({ icon: "🗂️", title: "Nothing here", msg: "No stocks match these filters — try another category or price range." });
   wireStockCards(box);
@@ -1294,28 +1322,54 @@ function nseOpen() {
   const mins = ist.getHours() * 60 + ist.getMinutes();
   return mins >= 555 && mins <= 930; // 9:15–15:30 IST
 }
-async function loadMarket() {
-  const st = $("marketState");
-  const open = nseOpen();
-  if (st) { st.textContent = open ? "● Open" : "● Closed"; st.className = "market-state " + (open ? "open" : "closed"); }
-  const box = $("marketRows");
-  if (!box) return;
-  const row = (name, q) => {
-    if (!q || q.error || q.price == null) return `<div class="mkt-row"><div class="mk-n">${name}</div><div class="mk-line"><span class="mk-v">—</span></div></div>`;
+function setIdx(prefix, q) {
+  const v = $(prefix + "V"), c = $(prefix + "C");
+  if (!v) return;
+  if (!q || q.error || q.price == null) { v.textContent = "—"; if (c) { c.textContent = ""; c.className = "mc-c"; } return; }
+  v.textContent = fmt(q.price);
+  if (c) {
     const chg = q.prev_close ? (q.price - q.prev_close) / q.prev_close * 100 : null;
-    const cls = chg == null ? "" : (chg >= 0 ? "up" : "down");
-    return `<div class="mkt-row"><div class="mk-n">${name}</div>
-      <div class="mk-line"><span class="mk-v">${fmt(q.price)}</span><span class="mk-c ${cls}">${chg == null ? "" : (chg >= 0 ? "+" : "") + chg.toFixed(2) + "%"}</span></div></div>`;
-  };
+    c.textContent = chg == null ? "" : (chg >= 0 ? "+" : "") + chg.toFixed(2) + "%";
+    c.className = "mc-c " + (chg == null ? "" : (chg >= 0 ? "up" : "down"));
+  }
+}
+let _mktSparkDone = false;
+async function loadMktSpark() {
+  const box = $("mktSpark");
+  if (!box || _mktSparkDone) return;
+  _mktSparkDone = true;
+  try {
+    const d = await (await fetch("/api/stock?symbol=" + encodeURIComponent("^NSEI") + "&tf=D")).json();
+    const closes = (d.candles || []).map((c) => c.close).filter((x) => x != null).slice(-60);
+    if (closes.length >= 2) box.innerHTML = sparkSVG(closes);
+  } catch (e) { /* no sparkline if the index series is unavailable */ }
+}
+async function loadMarket() {
+  const open = nseOpen();
+  const pill = $("mktPill");
+  if (pill) { pill.className = "mkt-pill " + (open ? "open" : "closed"); const t = $("mktPillTxt"); if (t) t.textContent = open ? "Market Open" : "Market Closed"; }
   try {
     const d = await (await fetch("/api/quote?symbols=" + encodeURIComponent("^NSEI,^BSESN"))).json();
     const q = d.quotes || {};
-    box.innerHTML = row("NIFTY 50", q["^NSEI"]) + row("SENSEX", q["^BSESN"]);
-  } catch (e) { box.innerHTML = row("NIFTY 50", null) + row("SENSEX", null); }
+    setIdx("nifty", q["^NSEI"]); setIdx("sensex", q["^BSESN"]);
+  } catch (e) { setIdx("nifty", null); setIdx("sensex", null); }
+  loadMktSpark();
+}
+function updateClock() {
+  const el = $("topClock");
+  if (!el) return;
+  const now = new Date();
+  const ist = new Date(now.getTime() + (now.getTimezoneOffset() + 330) * 60000);
+  const mon = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][ist.getMonth()];
+  let h = ist.getHours(); const m = ist.getMinutes(); const ap = h >= 12 ? "PM" : "AM";
+  h = h % 12 || 12;
+  el.textContent = ist.getDate() + " " + mon + ", " + h + ":" + String(m).padStart(2, "0") + " " + ap;
 }
 
 /* ---------- boot ---------- */
 updateBellDot();
+updateClock();
+setInterval(updateClock, 15000);
 loadMarket();
 setInterval(loadMarket, 60000);
 setInterval(tickLive, 1000);

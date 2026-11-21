@@ -17,32 +17,31 @@
     <aside class="sidebar">
       <div class="side-brand">
         <span class="side-logo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 16l5-6 4 3 5-8 4 5"/></svg></span>
-        <span class="side-name">Trader</span>
+        <div class="side-bt"><span class="side-name">Trader</span><span class="side-tag">Scan • Analyse • Track</span></div>
       </div>
       <nav class="side-nav">
         <button class="side-link active" data-page="home"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg><span>Home</span></button>
+        <button class="side-link" data-page="dashboard"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg><span>Dashboard</span></button>
         <button class="side-link" data-page="watchlist"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12v18l-6-4-6 4V3z"/></svg><span>Watchlist</span></button>
         <button class="side-link" data-page="screeners"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 3 8l9 5 9-5-9-5z"/><path d="M3 13l9 5 9-5"/></svg><span>Screeners</span></button>
         <button class="side-link" data-page="alerts"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9a6 6 0 1 1 12 0c0 5 2 6 2 6H4s2-1 2-6z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg><span>Alerts</span></button>
         <button class="side-link" data-page="reports"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3h8l4 4v14H7z"/><path d="M14 3v5h5"/></svg><span>Reports</span></button>
       </nav>
-      <div class="market" id="marketWidget">
-        <div class="market-head"><span>Market</span><span class="market-state" id="marketState">●</span></div>
-        <div id="marketRows" class="market-rows"></div>
-      </div>
+      <button class="side-profile" id="profileBtn" type="button"><span class="pf-av">P</span><span class="pf-n">Profile</span><span class="pf-ch">›</span></button>
     </aside>
 
     <!-- MAIN COLUMN -->
     <div class="maincol">
       <header class="topbar">
-        <div class="topnav">
-          <button class="navlink active" data-page="home"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg>Home</button>
-          <button class="navlink" data-page="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4-4"/></svg>Search</button>
-          <button class="navlink" data-page="dashboard"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>Dashboard</button>
-          <button class="navlink" data-page="watchlist"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12v18l-6-4-6 4V3z"/></svg>Watchlist</button>
+        <div class="topsearch">
+          <svg class="ts-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4-4"/></svg>
+          <input id="globalSearch" class="ts-input" placeholder="Search stocks (e.g. SBIN, TCS, RELIANCE)…" autocomplete="off" aria-label="Search stocks" />
+          <kbd class="ts-kbd">/</kbd>
+          <div id="globalSearchDrop" class="dropdown hidden"></div>
         </div>
         <div class="topright">
-          <span class="feedbadge" title="Delayed data, research only">● Delayed · not advice</span>
+          <span class="mkt-pill" id="mktPill" title="NSE market hours (IST)"><span class="mp-dot"></span><span id="mktPillTxt">Market</span></span>
+          <span class="topclock" id="topClock" title="Delayed data · not advice"></span>
           <div class="setbox">
             <button id="bellBtn" class="iconbtn bell" title="Alerts" aria-label="Alerts"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9a6 6 0 1 1 12 0c0 5 2 6 2 6H4s2-1 2-6z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg><span id="bellDot" class="bell-dot hidden"></span></button>
           </div>
@@ -63,6 +62,15 @@
               <p class="sub">Your watchlist and today’s method picks — quality first, timed by the weekly 9/21 &amp; 21/50 crossovers.</p>
             </div>
             <button id="refreshHome" class="btn ghost">↻ Refresh</button>
+          </div>
+          <div class="marketcard" id="marketOverview">
+            <div class="mc-head">
+              <span class="mc-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-6 4 4 7-8"/><path d="M17 7h4v4"/></svg></span>
+              <div><div class="mc-t">Market Overview</div><div class="mc-s">Delayed snapshot · not advice</div></div>
+            </div>
+            <div class="mc-idx"><div class="mc-n">NIFTY 50</div><div class="mc-row"><span class="mc-v" id="niftyV">—</span><span class="mc-c" id="niftyC"></span></div></div>
+            <div class="mc-idx"><div class="mc-n">SENSEX</div><div class="mc-row"><span class="mc-v" id="sensexV">—</span><span class="mc-c" id="sensexC"></span></div></div>
+            <div class="mc-spark" id="mktSpark"></div>
           </div>
           <div id="homeStats" class="statrow"></div>
           <div id="homeFilters" class="filterwrap hidden"></div>
