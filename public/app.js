@@ -965,7 +965,17 @@ function buildSetPanel() {
      <div class="setrow">
        <label class="tgl"><span class="setlbl" style="margin:0">Auto-scan on Home</span>
          <input type="checkbox" id="setAuto"${s.autoScan ? " checked" : ""}></label>
-       <div class="sethint">Off = Home opens instantly; tap Refresh or “Scan now” for the live scan.</div></div>`;
+       <div class="sethint">Off = Home opens instantly; tap Refresh or “Scan now” for the live scan.</div></div>
+     <div class="setrow">
+       <span class="setlbl">Data &amp; backup</span>
+       <div class="setbtns">
+         <button class="btn sm" id="setExport">↓ Export backup</button>
+         <button class="btn sm ghost" id="setImport">↑ Restore</button>
+         <input type="file" id="setImportFile" accept="application/json,.json" hidden>
+       </div>
+       <div class="sethint">Your holdings, watchlist, alerts &amp; settings live only in this browser. Export a JSON backup (also how you move data to another device). Restore replaces current data.</div>
+       <div class="setbtns" style="margin-top:8px"><button class="btn sm ghost" id="setHealth">⚡ Check data feed</button><span id="setHealthOut" class="sethint" style="margin:0"></span></div>
+     </div>`;
   $("setPanel").querySelectorAll("#setTf button").forEach((b) =>
     b.addEventListener("click", () => {
       const ns = getSettings(); ns.defaultTf = b.dataset.tf; saveSettings(ns);
@@ -976,6 +986,60 @@ function buildSetPanel() {
   document.getElementById("setAuto").addEventListener("change", (e) => {
     const ns = getSettings(); ns.autoScan = e.target.checked; saveSettings(ns);
   });
+  document.getElementById("setExport").addEventListener("click", exportBackup);
+  const impBtn = document.getElementById("setImport"), impFile = document.getElementById("setImportFile");
+  impBtn.addEventListener("click", () => impFile.click());
+  impFile.addEventListener("change", (e) => { const f = e.target.files && e.target.files[0]; if (f) importBackupFile(f); e.target.value = ""; });
+  document.getElementById("setHealth").addEventListener("click", checkDataFeed);
+}
+
+/* ---------- Phase 0: backup / restore + data health ---------- */
+// Every piece of your data that lives only in this browser. Export/restore keeps
+// it safe (a browser clear wipes localStorage) and moves it between devices.
+const BACKUP_KEYS = ["holdings", "watch", "alerts", "settings", "emaCfg", "rsiCfg", "macdCfg", "bbCfg", "stCfg"];
+function exportBackup() {
+  const data = {};
+  BACKUP_KEYS.forEach((k) => { try { const v = localStorage.getItem(k); if (v != null) data[k] = v; } catch (e) {} });
+  const payload = { app: "trader-dashboard", kind: "backup", version: 1, exportedAt: new Date().toISOString(), data };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = "trader-dashboard-backup-" + new Date().toISOString().slice(0, 10) + ".json";
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  showToast("Backup downloaded (" + Object.keys(data).length + " items)", "ok");
+}
+function importBackupFile(file) {
+  const reader = new FileReader();
+  reader.onload = () => {
+    let payload;
+    try { payload = JSON.parse(reader.result); } catch (e) { showToast("That file isn't valid JSON", "err"); return; }
+    const data = payload && payload.data;
+    if (!data || typeof data !== "object" || Array.isArray(data)) { showToast("Not a Trader Dashboard backup", "err"); return; }
+    const keys = Object.keys(data).filter((k) => BACKUP_KEYS.includes(k));
+    if (!keys.length) { showToast("Backup has no recognised data", "err"); return; }
+    if (!confirm("Restore this backup?\n\nIt will REPLACE your current holdings, watchlist, alerts and settings in this browser (" + keys.length + " items). This cannot be undone.")) return;
+    let ok = 0;
+    keys.forEach((k) => { try { const v = data[k]; if (typeof v === "string") { JSON.parse(v); localStorage.setItem(k, v); ok++; } } catch (e) {} });
+    showToast("Restored " + ok + " items — reloading…", "ok");
+    setTimeout(() => location.reload(), 800);
+  };
+  reader.onerror = () => showToast("Couldn't read that file", "err");
+  reader.readAsText(file);
+}
+async function checkDataFeed() {
+  const out = document.getElementById("setHealthOut");
+  if (out) out.textContent = "Checking…";
+  try {
+    const hz = await fetch("/healthz", { cache: "no-store" });
+    const q = await (await fetch("/api/quote?symbols=" + encodeURIComponent("^NSEI"), { cache: "no-store" })).json();
+    const nq = (q.quotes || {})["^NSEI"];
+    const okFeed = hz.ok && nq && !nq.error && nq.price != null;
+    let when = "";
+    if (nq && nq.as_of) { const d = new Date(nq.as_of * 1000 + 330 * 60000); when = " · last quote " + d.toISOString().slice(11, 16) + " IST, " + d.toISOString().slice(0, 10); }
+    if (out) out.textContent = okFeed ? ("● Feed OK · delayed ~15 min" + when) : "● Feed problem — data may be stale";
+    if (out) out.style.color = okFeed ? "var(--buy)" : "var(--sell)";
+  } catch (e) { if (out) { out.textContent = "● Can't reach the feed"; out.style.color = "var(--sell)"; } }
 }
 $("setBtn").addEventListener("click", (e) => { e.stopPropagation(); buildSetPanel(); $("setPanel").classList.toggle("hidden"); });
 document.addEventListener("click", (e) => {

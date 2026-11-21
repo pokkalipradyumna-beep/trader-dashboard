@@ -527,6 +527,7 @@ button{font-family:inherit}
 .tgl{display:flex;align-items:center;justify-content:space-between;gap:10px;cursor:pointer}
 .tgl input{width:16px;height:16px;accent-color:var(--accent)}
 .sethint{font-size:11px;color:var(--faint);margin-top:4px;line-height:1.4}
+.setbtns{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:6px}
 
 /* star toggles */
 .star{font-size:16px}
