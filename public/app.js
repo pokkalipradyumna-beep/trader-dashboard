@@ -1294,7 +1294,7 @@ function drawScreeners() {
   const body = $("screenBody"), f = screenFilters;
   const seg = (label, key, opts) => `<div class="scf"><div class="scf-l">${label}</div><div class="seg">${opts.map((o) =>
     `<button class="${String(f[key]) === String(o.v) ? "active" : ""}" data-sk="${key}" data-sv="${o.v}">${o.t}</button>`).join("")}</div></div>`;
-  const filters = `<div class="screen-filters">
+  const filters = `<div class="screenbar">
     ${seg("Signal", "cat", [{ v: "", t: "All" }, { v: "STRONG BUY", t: "Strong" }, { v: "BUY", t: "Buy" }, { v: "HOLD", t: "Hold" }, { v: "WAIT", t: "Wait" }, { v: "SELL", t: "Sell" }])}
     ${seg("Quality", "q", [{ v: "", t: "Any" }, { v: "PASS", t: "Pass" }, { v: "NEAR", t: "Near" }, { v: "FAIL", t: "Fail" }])}
     ${seg("Valuation", "v", [{ v: "", t: "Any" }, { v: "CHEAP", t: "Cheap" }, { v: "FAIR", t: "Fair" }, { v: "EXPENSIVE", t: "Expensive" }])}
@@ -1305,11 +1305,15 @@ function drawScreeners() {
     (!f.q || x.quality === f.q) &&
     (!f.v || x.valuation === f.v) &&
     (!f.conf || (x.confluence && x.confluence.bull >= f.conf)));
-  body.innerHTML = filters + `<div class="screen-count"><b>${rows.length}</b> of ${screenData.length} stocks match</div>` +
+  const active = !!(f.cat || f.q || f.v || f.conf);
+  const count = `<div class="screen-count"><span class="sc-n"><b>${rows.length}</b> of ${screenData.length} stocks match</span>${active ? '<button class="sc-clear" id="scClear">✕ Clear filters</button>' : ""}</div>`;
+  body.innerHTML = filters + count +
     (rows.length ? `<div class="stocklist">${rows.map(cardHTML).join("")}</div>`
       : stateBox({ icon: "🔍", title: "No matches", msg: "Loosen the filters to see more stocks." }));
   body.querySelectorAll(".seg button[data-sk]").forEach((b) =>
     b.addEventListener("click", () => { const k = b.dataset.sk; f[k] = (k === "conf") ? +b.dataset.sv : b.dataset.sv; drawScreeners(); }));
+  const clr = document.getElementById("scClear");
+  if (clr) clr.addEventListener("click", () => { screenFilters = { cat: "", q: "", v: "", conf: 0 }; drawScreeners(); });
   const list = body.querySelector(".stocklist"); if (list) wireStockCards(list);
 }
 
