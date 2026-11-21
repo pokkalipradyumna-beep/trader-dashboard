@@ -126,6 +126,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         u = urlparse(self.path)
+        # On Vercel the function is reached via a rewrite that carries the real
+        # request path in __vpath; locally __vpath is absent and u.path is used.
+        u = u._replace(path=(parse_qs(u.query).get("__vpath") or [u.path])[0])
         try:
             if u.path == "/api/holdings":
                 n = int(self.headers.get("Content-Length", "0"))
@@ -154,6 +157,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         u = urlparse(self.path)
         qs = parse_qs(u.query)
+        # On Vercel the function is reached via a rewrite that carries the real
+        # request path in __vpath; locally __vpath is absent and u.path is used.
+        u = u._replace(path=(qs.get("__vpath") or [u.path])[0])
         try:
             if u.path in ("/healthz", "/api/health"):
                 self._send(200, json.dumps({"ok": True}))
