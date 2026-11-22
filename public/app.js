@@ -524,6 +524,100 @@ function confluenceBlock(c) {
      <div class="conf-votes">${chips}</div>
      <div class="note"><b>Underlined</b> = your method core (weekly 9/21 &amp; 21/50); RSI &amp; MACD are confirmation.</div></div>`;
 }
+/* ---------- Smart analysis (Phase A): plain-English explanation + trading perspectives ---------- */
+// All of this READS the existing engine output + separate daily/intraday candles.
+// It never changes the weekly 9/21·21/50 signal, the completed-candle rule, or any
+// BUY/SELL logic — it only explains and contextualises them.
+function explainSignal(d) {
+  const v = d.verdict, s9 = d.signal_9_21, s21 = d.signal_21_50, q = d.quality, val = d.valuation;
+  if (!v) return "";
+  const parts = [];
+  if (s9) {
+    const rel = s9.regime === "above"
+      ? `the 9-week EMA (₹${fmt(s9.fast)}) is above the 21-week EMA (₹${fmt(s9.slow)}), so the short-term trend is up`
+      : `the 9-week EMA (₹${fmt(s9.fast)}) is below the 21-week EMA (₹${fmt(s9.slow)}), so the short-term trend is down`;
+    const cross = s9.fresh_bull ? " — and it crossed up this week for the first time, a <b>fresh buy trigger</b>"
+      : s9.fresh_bear ? " — and it crossed down this week, a <b>fresh sell trigger</b>"
+      : " (no fresh cross this week)";
+    parts.push("On the chart, " + rel + cross + ".");
+  }
+  if (s21) parts.push("The longer-term 21/50 trend is " + (s21.regime === "above" ? "<b>up</b> — a broader uptrend" : "<b>down</b> — the broader trend is weak") + " (21-week EMA ₹" + fmt(s21.slow) + " vs the 50-week).");
+  if (q && q.available) parts.push("On fundamentals it " + (q.quality === "PASS" ? "<b>passes</b> the quality checks" : q.quality === "NEAR" ? "is <b>borderline</b> on quality" : "<b>fails</b> the quality checks") + (q.valuation ? " and looks <b>" + q.valuation.toLowerCase() + "</b> on valuation" : "") + ".");
+  else parts.push("No curated fundamentals are on file for this stock, so this is a <b>chart &amp; signal only</b> read.");
+  parts.push("This uses the last <b>completed</b> weekly candle (" + (d.last_week || "—") + ") — the weekly signal only changes when a week closes, never intra-week.");
+  const net = v.headline.startsWith("STRONG") ? "STRONG BUY" : v.action;
+  const why = v.action === "BUY" ? (q && q.available && q.quality === "PASS" ? "a fresh entry trigger inside an uptrend, with quality passing" : v.headline.startsWith("STRONG") ? "a fresh entry trigger inside a long-term uptrend" : "a fresh entry trigger, but check the caveats")
+    : v.action === "SELL" ? "a fresh exit trigger (9/21 death cross)"
+    : v.action === "HOLD" ? "the uptrend is intact, but there's no new entry trigger"
+    : "there's no buy trigger yet (9/21 below)";
+  return `<div class="explain"><div class="ex-text">${parts.join(" ")}</div><div class="ex-net"><b>In short:</b> ${net} — ${why}.</div></div>`;
+}
+function _trendFrom(closes) {
+  if (!closes || closes.length < 22) return null;
+  const e9 = computeEMA(closes, 9), e21 = computeEMA(closes, 21);
+  const a = e9[e9.length - 1], b = e21[e21.length - 1];
+  return (a == null || b == null) ? null : { up: a >= b };
+}
+function _rsiFrom(closes) { const r = computeRSI(closes, 14); return r.length ? r[r.length - 1] : null; }
+function _levels(candles) {
+  if (!candles || candles.length < 5) return null;
+  const r = candles.slice(-40);
+  return { support: Math.min(...r.map((c) => c.low)), resistance: Math.max(...r.map((c) => c.high)), last: candles[candles.length - 1].close };
+}
+async function loadPerspectives(d) {
+  const host = document.getElementById("perspectives");
+  if (!host) return;
+  const sym = d.symbol;
+  let daily = [], intraday = null, intradayErr = null;
+  try { const dd = await (await fetch("/api/stock?symbol=" + encodeURIComponent(sym) + "&tf=D")).json(); daily = dd.candles || []; } catch (e) {}
+  try { const id = await (await fetch("/api/intraday?symbol=" + encodeURIComponent(sym) + "&interval=15m")).json(); if (id && id.bars && id.bars.length) intraday = id; else intradayErr = (id && id.error) || "no_data"; } catch (e) { intradayErr = "feed_down"; }
+  const dCl = daily.map((c) => c.close), dT = _trendFrom(dCl), dR = _rsiFrom(dCl), dL = _levels(daily);
+  const iBars = intraday ? intraday.bars : [], iCl = iBars.map((c) => c.close), iT = _trendFrom(iCl), iR = _rsiFrom(iCl), iL = _levels(iBars);
+  const wkUp = d.signal_21_50 && d.signal_21_50.regime === "above";
+  const s9 = d.signal_9_21, up921 = s9 && s9.regime === "above", fresh = s9 && s9.fresh_bull, q = d.quality, val = d.valuation;
+  const P = [];
+  // Long-term
+  P.push({ label: "Long-term investing", horizon: "months – years",
+    verdict: (wkUp && q && q.available && q.quality === "PASS") ? "Suitable" : wkUp ? "Possible, with caveats" : "Not yet",
+    reasons: [wkUp ? "Long-term 21/50 weekly trend is up." : "Long-term 21/50 weekly trend is down — wait for it to turn up.",
+      q && q.available ? "Quality " + q.quality + (q.valuation ? " · valuation " + q.valuation : "") + "." : null].filter(Boolean),
+    risks: [q && q.available ? null : "No curated fundamentals — quality unverified.",
+      (val && val.applicable && val.flag) ? "5-model valuation is unreliable for this cyclical." : null,
+      (val && val.applicable && val.upside_pct != null && val.upside_pct < -10) ? ("Trades above intrinsic value (" + val.upside_pct + "%).") : null].filter(Boolean),
+    levels: null, note: "Your weekly method + quality + valuation." });
+  // Swing
+  P.push({ label: "Swing", horizon: "2 – 8 weeks",
+    verdict: (fresh && wkUp) ? "Suitable" : up921 ? "Hold-friendly" : "Not yet",
+    reasons: [up921 ? "Weekly 9/21 is in an uptrend (entry side positive)." : "Weekly 9/21 is below — no swing entry trigger.",
+      fresh ? "Fresh 9/21 cross this week — a timely swing entry." : null,
+      dT ? ("Daily trend is " + (dT.up ? "up" : "down") + ".") : null].filter(Boolean),
+    risks: ["Weekly signals change only on a weekly close — can lag intra-week moves."],
+    levels: dL, note: "" });
+  // Short-term (daily, delayed)
+  if (!dT) P.push({ label: "Short-term", horizon: "a few days", verdict: "Not enough data", reasons: ["Not enough daily history to read a short-term trend."], risks: [], levels: dL, note: "Daily · ~15-min delayed", delayed: true });
+  else P.push({ label: "Short-term", horizon: "a few days",
+    verdict: (dT.up && dR != null && dR < 70 && dR > 45) ? "Watchable" : dT.up ? "Up but stretched" : "Not yet",
+    reasons: ["Daily trend is " + (dT.up ? "up (9-day EMA above 21-day)" : "down") + ".", dR != null ? ("Daily RSI " + Math.round(dR) + " (" + (dR >= 70 ? "overbought" : dR <= 30 ? "oversold" : "neutral") + ").") : ""].filter(Boolean),
+    risks: ["Uses end-of-day data that's ~15-min delayed — not for precise day timing."], levels: dL, note: "Daily · ~15-min delayed", delayed: true });
+  // Intraday (DELAYED — heavily labelled)
+  if (intradayErr || !iT) P.push({ label: "Intraday", horizon: "minutes – hours", verdict: "Not reliable", reasons: [], risks: ["Needs real-time data. Yahoo is ~15-min delayed and not licensed for live intraday — any intraday read here is illustrative only, never for live entries/exits."], levels: iL, note: "⚠ DELAYED ~15 min — not for live trading", delayed: true });
+  else P.push({ label: "Intraday", horizon: "minutes – hours", verdict: "Illustrative only",
+    reasons: ["15-minute trend is " + (iT.up ? "up" : "down") + " (9/21 EMA on 15-min candles).", iR != null ? ("15-min RSI " + Math.round(iR) + ".") : ""].filter(Boolean),
+    risks: ["⚠ This is ~15-MINUTE DELAYED data — NOT real-time. Do NOT use it for live intraday entries or exits. Shown for context only."],
+    levels: iL, note: "⚠ DELAYED ~15 min — not for live trading", delayed: true });
+  host.innerHTML = `<div class="d-grid">` + P.map(perspectiveCard).join("") + `</div>`;
+}
+function perspectiveCard(p) {
+  const vcls = /suitable/i.test(p.verdict) ? "ok" : /not|reliable|enough/i.test(p.verdict) ? "no" : "near";
+  const lv = p.levels ? `<div class="psp-lv"><span>Support ₹${fmt(p.levels.support)}</span><span>Now ₹${fmt(p.levels.last)}</span><span>Resistance ₹${fmt(p.levels.resistance)}</span></div>` : "";
+  return `<div class="block psp ${p.delayed ? "delayed" : ""}">
+      <div class="psp-h"><h3>${p.label}</h3><span class="psp-hz">${p.horizon}</span></div>
+      <div class="psp-v ${vcls}">${p.verdict}</div>
+      ${p.reasons.length ? `<div class="subtitle">Why</div>${p.reasons.map((r) => `<div class="psp-r">• ${r}</div>`).join("")}` : ""}
+      ${p.risks.length ? `<div class="subtitle">Risks</div>${p.risks.map((r) => `<div class="psp-risk">⚠ ${r}</div>`).join("")}` : ""}
+      ${lv}
+      ${p.note ? `<div class="psp-note">${p.note}</div>` : ""}</div>`;
+}
 function renderDetail(d) {
   const v = d.verdict, q = d.quality, val = d.valuation;
   const strong = v.headline.startsWith("STRONG");
@@ -558,6 +652,7 @@ function renderDetail(d) {
   // ---- Section 1: Trading signal & technical analysis ----
   let html = `<section class="d-sec">
     <h2 class="d-h"><span class="d-num">1</span>Trading signal &amp; technical analysis</h2>
+    ${explainSignal(d)}
     <div class="d-grid">
       <div class="block verdict ${cls}"><div class="vaction">${strong ? "STRONG BUY" : v.action}</div>
         <div class="vhead">${v.headline}</div>${combined ? `<div class="vnote">${combined}</div>` : ""}</div>
@@ -571,10 +666,12 @@ function renderDetail(d) {
         <div class="subtitle">Long-term 21 / 50 (trend)</div>${regimeLine(d.signal_21_50)}
         ${rsiHtml}${macdHtml}</div>
       <div class="block"><h3>Confluence &amp; momentum</h3>${statusStrip(d.signal_9_21, d.signal_21_50)}${confluenceBlock(d.confluence)}</div>
-    </div></section>`;
+    </div></section>
+    <section class="d-sec"><h2 class="d-h"><span class="d-num">2</span>Trading perspectives — how to trade this</h2>
+      <div id="perspectives"><div class="scanhint"><span class="spinner"></span>Analysing across timeframes…</div></div></section>`;
 
   // ---- Section 2: Fundamentals & quality ----
-  html += `<section class="d-sec"><h2 class="d-h"><span class="d-num">2</span>Fundamentals &amp; quality</h2><div class="d-grid">`;
+  html += `<section class="d-sec"><h2 class="d-h"><span class="d-num">3</span>Fundamentals &amp; quality</h2><div class="d-grid">`;
   if (q && q.available) {
     const qcls = { PASS: "ok", NEAR: "near", FAIL: "no" }[q.quality] || "";
     const vcls = { CHEAP: "ok", FAIR: "near", EXPENSIVE: "no" }[q.valuation] || "";
@@ -591,7 +688,7 @@ function renderDetail(d) {
   html += `</div></section>`;
 
   // ---- Section 3: Valuation ----
-  html += `<section class="d-sec"><h2 class="d-h"><span class="d-num">3</span>Valuation</h2><div class="d-grid">`;
+  html += `<section class="d-sec"><h2 class="d-h"><span class="d-num">4</span>Valuation</h2><div class="d-grid">`;
   if (val && val.applicable) {
     const up = val.upside_pct;
     const upPill = val.flag
@@ -613,7 +710,7 @@ function renderDetail(d) {
   const coName = (q && q.name) || sym.replace(/\.(NS|BO)$/i, "");
   const seg = q && q.type ? (q.type === "bank" ? "Banking / financials" : q.type) : null;
   const infoRow = (l, val2) => `<div class="row"><span>${l}</span><span class="r-v">${val2}</span></div>`;
-  html += `<section class="d-sec"><h2 class="d-h"><span class="d-num">4</span>Company information</h2><div class="d-grid">
+  html += `<section class="d-sec"><h2 class="d-h"><span class="d-num">5</span>Company information</h2><div class="d-grid">
       <div class="block"><h3>Overview</h3>
         ${infoRow("Company", coName)}
         ${infoRow("Symbol", sym)}
@@ -626,6 +723,7 @@ function renderDetail(d) {
 
   $("detailPanel").innerHTML = html;
   lastStockData = d;
+  loadPerspectives(d); // async: fills the Trading-perspectives section (daily + delayed intraday)
 }
 
 /* ---------- search autocomplete (R-2) ---------- */

@@ -111,6 +111,43 @@ _EXTRA = {
 }
 
 
+def _intraday(symbol, interval="15m", rng="5d"):
+    """Delayed intraday candles for the trading-perspectives feature. SEPARATE from
+    the weekly engine: it keeps full unix timestamps (engine.fetch_candles collapses
+    to date-only, which is correct for W/D/M but loses the time of day). Reuses the
+    engine's Yahoo URL builder + SSL context only; it changes no engine function and
+    never touches the weekly 9/21·21/50 signal logic. Data is Yahoo ~15-min delayed."""
+    import urllib.request as _ur, urllib.error as _ue
+    req = _ur.Request(engine._yahoo_url(symbol, rng, interval), headers={"User-Agent": engine.UA})
+    try:
+        with _ur.urlopen(req, timeout=20, context=engine._SSL_CTX) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except _ue.HTTPError as e:
+        if e.code in (404, 400):
+            raise engine.NotFoundError("%s isn't on the data feed." % symbol)
+        raise engine.FeedDownError("The data feed returned an error (HTTP %s)." % e.code)
+    except Exception as e:  # noqa: BLE001
+        raise engine.FeedDownError("Can't reach the data feed right now (%s)." % e)
+    res = (data.get("chart") or {}).get("result") or []
+    if not res:
+        raise engine.NoDataError("No intraday data available for %s right now." % symbol)
+    r = res[0]
+    ts = r.get("timestamp") or []
+    q = ((r.get("indicators") or {}).get("quote") or [{}])[0]
+    o, h, lo, c, v = q.get("open"), q.get("high"), q.get("low"), q.get("close"), q.get("volume")
+    bars = []
+    for i, t in enumerate(ts):
+        ov, hv, lov, cv = o[i], h[i], lo[i], c[i]
+        if None in (ov, hv, lov, cv) or min(ov, hv, lov, cv) <= 0 or hv < lov:
+            continue
+        bars.append({"time": int(t), "open": ov, "high": hv, "low": lov, "close": cv, "volume": v[i] or 0})
+    if not bars:
+        raise engine.NoDataError("No usable intraday data for %s right now." % symbol)
+    meta = r.get("meta") or {}
+    return {"currency": meta.get("currency", "INR"), "as_of": meta.get("regularMarketTime"),
+            "interval": interval, "bars": bars}
+
+
 class Handler(BaseHTTPRequestHandler):
     def _send(self, code, body, ctype="application/json"):
         b = body.encode("utf-8") if isinstance(body, str) else body
@@ -175,6 +212,14 @@ class Handler(BaseHTTPRequestHandler):
                 d["valuation"] = (valuation.value(f, d["price"]) if f
                                   else {"applicable": False, "note": "No fundamentals on file."})
                 self._send(200, json.dumps(d))
+                return
+            if u.path == "/api/intraday":
+                sym = (qs.get("symbol") or ["RELIANCE.NS"])[0]
+                iv = (qs.get("interval") or ["15m"])[0]
+                if iv not in ("5m", "15m", "30m", "60m"):
+                    iv = "15m"
+                rng = "5d" if iv in ("5m", "15m") else "1mo"
+                self._send(200, json.dumps(_intraday(sym, iv, rng)))
                 return
             if u.path == "/api/scan":
                 syms = [s.strip() for s in (qs.get("symbols") or [""])[0].split(",") if s.strip()]
