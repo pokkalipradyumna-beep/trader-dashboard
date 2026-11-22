@@ -531,11 +531,16 @@ function renderDetail(d) {
     if (v.action === "BUY" && q.quality === "PASS") combined = "✅ <b>Quality ✓ + buy trigger</b> — both halves align.";
     else if (v.action === "BUY" && q.quality === "FAIL") combined = "⚠️ <b>Chart-only</b> — trigger but fails quality.";
   }
-  let html = `<div class="verdict ${cls}"><div class="vaction">${strong ? "STRONG BUY" : v.action}</div>
-     <div class="vhead">${v.headline}</div>${combined ? `<div class="vnote">${combined}</div>` : ""}</div>`;
-
-  html += statusStrip(d.signal_9_21, d.signal_21_50);
-  html += confluenceBlock(d.confluence);
+  // EMA values come straight from the engine's signal pairs (9/21 and 21/50).
+  const s9 = d.signal_9_21, s21 = d.signal_21_50;
+  const e9 = s9 ? s9.fast : null, e21 = s9 ? s9.slow : (s21 ? s21.fast : null), e50 = s21 ? s21.slow : null;
+  const emaRow = (lbl, col, val2) => `<div class="row"><span><span class="ema-dot" style="background:${col}"></span>${lbl}</span><span class="r-v">${val2 != null ? "₹" + fmt(val2) : "—"}</span></div>`;
+  const crossTxt = !s9 ? "—"
+    : s9.fresh_bull ? '<span class="up">▲ Fresh bullish cross this week</span>'
+    : s9.fresh_bear ? '<span class="down">▼ Fresh bearish cross this week</span>'
+    : s9.regime === "above" ? '<span class="up">▲ Above (uptrend, no fresh cross)</span>'
+    : '<span class="down">▼ Below (downtrend)</span>';
+  const trendTxt = !s21 ? "—" : s21.regime === "above" ? '<span class="up">▲ Long-term uptrend</span>' : '<span class="down">▼ Long-term downtrend</span>';
 
   const rsiArr = computeRSI((d.candles || []).map((c) => c.close), rsiCfg.period);
   const rv = rsiArr.length ? rsiArr[rsiArr.length - 1] : null;
@@ -547,40 +552,76 @@ function renderDetail(d) {
   const mMacd = mm.macd[mi], mSig = mm.signal[mi], mHist = mm.hist[mi];
   const macdHtml = (mMacd == null || mSig == null) ? "" : `<div class="subtitle">Momentum — MACD ${macdCfg.fast}/${macdCfg.slow}/${macdCfg.signal}</div>
      <span class="${mMacd >= mSig ? "up" : "down"}">${mMacd >= mSig ? "bullish" : "bearish"} · hist ${mHist >= 0 ? "+" : ""}${Math.round(mHist * 100) / 100}</span>`;
-  html += `<div class="block"><h3>Signals</h3>
-     <div class="subtitle">Short-term 9 / 21 (entry)</div>${regimeLine(d.signal_9_21)}
-     <div class="subtitle">Long-term 21 / 50 (trend)</div>${regimeLine(d.signal_21_50)}
-     ${rsiHtml}${macdHtml}</div>`;
 
+  // ---- Section 1: Trading signal & technical analysis ----
+  let html = `<section class="d-sec">
+    <h2 class="d-h"><span class="d-num">1</span>Trading signal &amp; technical analysis</h2>
+    <div class="d-grid">
+      <div class="block verdict ${cls}"><div class="vaction">${strong ? "STRONG BUY" : v.action}</div>
+        <div class="vhead">${v.headline}</div>${combined ? `<div class="vnote">${combined}</div>` : ""}</div>
+      <div class="block"><h3>Moving averages (weekly)</h3>
+        ${emaRow("EMA 9", "#eab308", e9)}${emaRow("EMA 21", "#3b82f6", e21)}${emaRow("EMA 50", "#f97316", e50)}
+        <div class="subtitle">9 / 21 — entry</div><div class="d-line">${crossTxt}</div>
+        <div class="subtitle">21 / 50 — trend</div><div class="d-line">${trendTxt}</div>
+        <div class="subtitle">Completed weekly candle</div><div class="d-line">${d.last_week || "—"}</div></div>
+      <div class="block"><h3>Signals</h3>
+        <div class="subtitle">Short-term 9 / 21 (entry)</div>${regimeLine(d.signal_9_21)}
+        <div class="subtitle">Long-term 21 / 50 (trend)</div>${regimeLine(d.signal_21_50)}
+        ${rsiHtml}${macdHtml}</div>
+      <div class="block"><h3>Confluence &amp; momentum</h3>${statusStrip(d.signal_9_21, d.signal_21_50)}${confluenceBlock(d.confluence)}</div>
+    </div></section>`;
+
+  // ---- Section 2: Fundamentals & quality ----
+  html += `<section class="d-sec"><h2 class="d-h"><span class="d-num">2</span>Fundamentals &amp; quality</h2><div class="d-grid">`;
   if (q && q.available) {
     const qcls = { PASS: "ok", NEAR: "near", FAIL: "no" }[q.quality] || "";
     const vcls = { CHEAP: "ok", FAIR: "near", EXPENSIVE: "no" }[q.valuation] || "";
-    html += `<div class="block"><h3>Quality <span style="color:#5b6475;font-weight:400">as of ${q.as_of}</span></h3>
-       <div style="display:flex;gap:6px;margin-bottom:8px">
-         <span class="pill ${qcls}">QUALITY ${q.quality} (${q.quality_passed}/${q.quality_total})</span>
-         <span class="pill ${vcls}">${q.valuation}</span></div>
-       <div class="subtitle">Business quality</div>${q.quality_gates.map(gateRow).join("")}
-       <div class="subtitle">Valuation &amp; ownership</div>${q.value_gates.map(gateRow).join("")}
-       ${q.flag ? `<div class="flagnote">⚠ ${q.flag}</div>` : ""}</div>`;
+    html += `<div class="block"><h3>Business quality <span style="color:var(--faint);font-weight:400">as of ${q.as_of}</span></h3>
+        <div style="display:flex;gap:6px;margin-bottom:8px"><span class="pill ${qcls}">QUALITY ${q.quality} (${q.quality_passed}/${q.quality_total})</span></div>
+        ${q.quality_gates.map(gateRow).join("")}</div>
+      <div class="block"><h3>Valuation &amp; ownership</h3>
+        <div style="display:flex;gap:6px;margin-bottom:8px"><span class="pill ${vcls}">${q.valuation}</span></div>
+        ${q.value_gates.map(gateRow).join("")}
+        ${q.flag ? `<div class="flagnote">⚠ ${q.flag}</div>` : ""}</div>`;
   } else {
-    html += `<div class="block"><h3>Quality</h3><div class="note">No fundamentals on file for this stock — chart &amp; signal only.</div></div>`;
+    html += `<div class="block"><h3>Business quality</h3><div class="note">No fundamentals on file for this stock — it shows chart &amp; signal only (not in the curated quality universe).</div></div>`;
   }
+  html += `</div></section>`;
 
+  // ---- Section 3: Valuation ----
+  html += `<section class="d-sec"><h2 class="d-h"><span class="d-num">3</span>Valuation</h2><div class="d-grid">`;
   if (val && val.applicable) {
     const up = val.upside_pct;
     const upPill = val.flag
       ? `<span class="pill unreliable" title="Unreliable for cyclicals — a sanity check, not a price target">~${up == null ? "—%" : (up >= 0 ? "+" + up : up) + "%"} ⚠ unreliable</span>`
       : `<span class="pill ${up == null ? "" : (up >= 0 ? "ok" : "no")}">${up == null ? "—" : (up >= 0 ? "+" + up + "% upside" : up + "% downside")}</span>`;
-    html += `<div class="block"><h3>Intrinsic value <span style="color:#5b6475;font-weight:400">5-model</span></h3>
-       <div style="display:flex;gap:6px;margin-bottom:8px">
-         <span class="pill">₹${val.intrinsic != null ? fmt(val.intrinsic) : "—"}</span>
-         ${upPill}</div>
-       ${val.models.map((m) => `<div class="row"><span>${m.name}</span><span class="r-v">${m.value != null ? "₹" + fmt(m.value) : "—"}</span></div>`).join("")}
-       ${val.flag ? `<div class="flagnote">⚠ ${val.flag} — unreliable for cyclicals.</div>` : ""}
-       <div class="note">Rough estimate on generic assumptions · ${val.used}/5 models · a sanity check, not a price target.</div></div>`;
-  } else if (val) {
-    html += `<div class="block"><h3>Intrinsic value</h3><div class="note">${val.note || ""}</div></div>`;
+    html += `<div class="block"><h3>Intrinsic value <span style="color:var(--faint);font-weight:400">5-model</span></h3>
+        <div style="display:flex;gap:6px;margin-bottom:8px"><span class="pill">₹${val.intrinsic != null ? fmt(val.intrinsic) : "—"}</span>${upPill}</div>
+        ${val.models.map((m) => `<div class="row"><span>${m.name}</span><span class="r-v">${m.value != null ? "₹" + fmt(m.value) : "—"}</span></div>`).join("")}
+        ${val.flag ? `<div class="flagnote">⚠ ${val.flag} — unreliable for cyclicals.</div>` : ""}
+        <div class="note">Rough estimate on generic assumptions · ${val.used}/5 models · a sanity check, not a price target.</div></div>`;
+  } else {
+    html += `<div class="block"><h3>Intrinsic value</h3><div class="note">${(val && val.note) || "Valuation isn't computed for this stock (e.g. banks, or no fundamentals on file)."}</div></div>`;
   }
+  html += `</div></section>`;
+
+  // ---- Section 4: Company information (only what the app actually has) ----
+  const sym = d.symbol || "";
+  const exch = /\.NS$/i.test(sym) ? "NSE · India" : /\.BO$/i.test(sym) ? "BSE · India" : "—";
+  const coName = (q && q.name) || sym.replace(/\.(NS|BO)$/i, "");
+  const seg = q && q.type ? (q.type === "bank" ? "Banking / financials" : q.type) : null;
+  const infoRow = (l, val2) => `<div class="row"><span>${l}</span><span class="r-v">${val2}</span></div>`;
+  html += `<section class="d-sec"><h2 class="d-h"><span class="d-num">4</span>Company information</h2><div class="d-grid">
+      <div class="block"><h3>Overview</h3>
+        ${infoRow("Company", coName)}
+        ${infoRow("Symbol", sym)}
+        ${infoRow("Exchange", exch)}
+        ${infoRow("Currency", d.currency || "INR")}
+        ${seg ? infoRow("Segment", seg) : ""}
+        ${infoRow("Fundamentals", q && q.available ? "Curated · as of " + q.as_of : "Not on file")}
+        <div class="d-note">Sector, industry and a company description aren't in the current data set — the app focuses on the weekly method, quality and valuation. These can be added in a later phase with a fundamentals data source.</div></div>
+    </div></section>`;
+
   $("detailPanel").innerHTML = html;
 }
 
