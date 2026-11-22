@@ -1039,13 +1039,14 @@ function buildSetPanel() {
 /* ---------- Phase 0: backup / restore + data health ---------- */
 // Every piece of your data that lives only in this browser. Export/restore keeps
 // it safe (a browser clear wipes localStorage) and moves it between devices.
-const BACKUP_KEYS = ["holdings", "watch", "alerts", "settings", "emaCfg", "rsiCfg", "macdCfg", "bbCfg", "stCfg"];
+const BACKUP_KEYS = ["holdings", "watch", "alerts", "settings", "cash", "emaCfg", "rsiCfg", "macdCfg", "bbCfg", "stCfg"];
 async function exportBackup() {
   const data = {};
   BACKUP_KEYS.forEach((k) => { try { const v = localStorage.getItem(k); if (v != null) data[k] = v; } catch (e) {} });
-  let journal = [];
+  let journal = [], snapshots = [];
   try { journal = await jAll(); } catch (e) {}
-  const payload = { app: "trader-dashboard", kind: "backup", version: 2, exportedAt: new Date().toISOString(), data, journal };
+  try { snapshots = await snapAll(); } catch (e) {}
+  const payload = { app: "trader-dashboard", kind: "backup", version: 3, exportedAt: new Date().toISOString(), data, journal, snapshots };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -1068,6 +1069,8 @@ function importBackupFile(file) {
     let ok = 0;
     keys.forEach((k) => { try { const v = data[k]; if (typeof v === "string") { JSON.parse(v); localStorage.setItem(k, v); ok++; } } catch (e) {} });
     if (journal.length) { try { await jBulkPut(journal); } catch (e) {} }
+    const snapshots = Array.isArray(payload.snapshots) ? payload.snapshots : [];
+    if (snapshots.length) { try { await snapBulkPut(snapshots); } catch (e) {} }
     showToast("Restored " + ok + " items — reloading…", "ok");
     setTimeout(() => location.reload(), 800);
   };
@@ -1127,7 +1130,11 @@ async function computeHoldings() {
 }
 async function loadHoldings() {
   $("dashHoldings").innerHTML = skelCards(3);
-  try { renderHoldings(await computeHoldings()); setLive(); }
+  try {
+    const d = await computeHoldings();
+    renderHoldings(d); setLive();
+    snapToday(d.total_value, d.total_invested, getCash()); // daily portfolio snapshot (Phase 4)
+  }
   catch (e) { renderState($("dashHoldings"), { icon: "📡", title: "Couldn't load holdings", msg: "Check your connection and try again.", retry: true }, loadHoldings); }
 }
 const EXIT_RANK = { SELL: 0, EXIT: 1 };
@@ -1458,13 +1465,35 @@ async function renderReports(quiet) {
       hold.total_pl_pct = ti ? Math.round((tv - ti) / ti * 1000) / 10 : 0;
     }
   } catch (e) { /* keep the server-computed totals if the quote fetch fails */ }
-  const plc = hold.total_pl >= 0 ? "green" : "red";
+  // ---- Phase 4: cash, realised P/L, snapshots, sector allocation, concentration ----
+  const cash = getCash();
+  const totalPortfolio = (hold.total_value || 0) + cash;
+  let realised = 0, closedN = 0;
+  try { (await jAll()).forEach((e) => { if (e.status === "closed" && e.realised) { realised += e.realised.pl_abs || 0; closedN++; } }); } catch (e) {}
+  await snapToday(hold.total_value, hold.total_invested, cash);
+  const snaps = (await snapAll()).slice().sort((a, b) => (a.date < b.date ? -1 : 1));
+  const vals = snaps.map((s) => s.value);
+  const peak = vals.length ? Math.max(...vals) : null;
+  const latest = vals.length ? vals[vals.length - 1] : null;
+  const drawdown = (peak && latest != null && peak > 0) ? (latest - peak) / peak * 100 : null;
+  const perfSince = (days) => { if (snaps.length < 2) return null; const t = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10); let base = null; for (const s of snaps) { if (s.date <= t) base = s; } if (!base) base = snaps[0]; return base.value > 0 ? (latest - base.value) / base.value * 100 : null; };
+  const perf1w = perfSince(7), perf1m = perfSince(30), perfAll = (snaps.length >= 2 && snaps[0].value > 0) ? (latest - snaps[0].value) / snaps[0].value * 100 : null;
+  const secMap = {}; H.filter((h) => h.value).forEach((h) => { const s = sectorOf(h.symbol); secMap[s] = (secMap[s] || 0) + h.value; });
+  const secRows = Object.entries(secMap).sort((a, b) => b[1] - a[1]);
+  const pcls = (x) => x == null ? "" : (x >= 0 ? "up" : "down");
+  const pfmt = (x) => x == null ? "—" : (x >= 0 ? "+" : "") + (Math.round(x * 10) / 10) + "%";
+  const distRow = (l, w, col) => `<div class="dist-row"><span class="dist-l">${l}</span><div class="dist-bar"><i style="width:${Math.min(100, w)}%;background:${col}"></i></div><span class="dist-n">${w}%</span></div>`;
+
   const sc = (cls, ic, v, l) => `<div class="statcard ${cls}"><div class="st-ic">${statIcon(ic)}</div><div class="st-t"><div class="st-v">${v}</div><div class="st-l">${l}</div></div></div>`;
   const stats = `<div class="statrow">
-    ${sc("blue", "up", "₹" + fmt(hold.total_value), "Portfolio value")}
-    ${sc(plc, "up", (hold.total_pl >= 0 ? "+" : "") + "₹" + fmt(hold.total_pl), "Total P/L" + (hold.total_pl_pct != null ? " · " + (hold.total_pl_pct >= 0 ? "+" : "") + hold.total_pl_pct + "%" : ""))}
-    ${sc("green", "star", H.length, "Holdings")}
-    ${sc("amber", "clock", H.filter((h) => h.code === "SELL" || h.code === "EXIT").length, "Exit alerts")}</div>`;
+    ${sc("blue", "up", "₹" + fmt(hold.total_value), "Holdings value")}
+    ${sc(hold.total_pl >= 0 ? "green" : "red", "up", (hold.total_pl >= 0 ? "+" : "") + "₹" + fmt(hold.total_pl), "Unrealised P/L" + (hold.total_pl_pct != null ? " · " + (hold.total_pl_pct >= 0 ? "+" : "") + hold.total_pl_pct + "%" : ""))}
+    ${sc(realised >= 0 ? "green" : "red", "star", (realised >= 0 ? "+" : "") + "₹" + fmt(realised), "Realised P/L" + (closedN ? " · " + closedN + " closed" : ""))}
+    ${sc("blue", "up", "₹" + fmt(totalPortfolio), "Total incl. cash")}</div>`;
+  const cashCtl = `<div class="cashbar"><span class="cash-l">Available cash</span>
+     <input id="repCash" class="al-in" type="number" min="0" step="any" value="${cash || ""}" placeholder="₹ cash balance">
+     <span class="cash-hint">Invested ₹${fmt(hold.total_invested)} · Cash ₹${fmt(cash)} · Total ₹${fmt(totalPortfolio)}</span></div>`;
+
   const CATS = ["STRONG BUY", "BUY", "HOLD", "WAIT", "CHART-ONLY", "SELL"];
   const CATCOL = { "STRONG BUY": "var(--buy)", "BUY": "var(--buy)", "HOLD": "var(--hold)", "WAIT": "var(--wait)", "CHART-ONLY": "var(--warn)", "SELL": "var(--sell)" };
   const maxN = rows.length || 1;
@@ -1473,15 +1502,40 @@ async function renderReports(quiet) {
   const mover = (x) => `<div class="mover-row"><span class="mv-n">${x.name}</span><span class="mv-c ${x.chg1w >= 0 ? "up" : "down"}">${x.chg1w >= 0 ? "+" : ""}${x.chg1w}%</span></div>`;
   const gainers = withChg.slice(0, 5).map(mover).join("") || '<div class="note">No data yet.</div>';
   const losers = withChg.slice(-5).reverse().map(mover).join("") || '<div class="note">No data yet.</div>';
-  const alloc = H.filter((h) => h.value).slice().sort((a, b) => (b.value || 0) - (a.value || 0)).map((h) => {
-    const w = hold.total_value ? Math.round(h.value / hold.total_value * 100) : 0;
-    return `<div class="dist-row"><span class="dist-l">${h.name}</span><div class="dist-bar"><i style="width:${w}%;background:var(--accent)"></i></div><span class="dist-n">${w}%</span></div>`;
-  }).join("") || '<div class="note">No holdings yet.</div>';
-  body.innerHTML = stats + `<div class="report-grid">
+  const allocStock = H.filter((h) => h.value).slice().sort((a, b) => (b.value || 0) - (a.value || 0)).map((h) => distRow(h.name, hold.total_value ? Math.round(h.value / hold.total_value * 100) : 0, "var(--accent)")).join("") || '<div class="note">No holdings yet.</div>';
+  const allocSector = secRows.map(([s, v]) => distRow(s, hold.total_value ? Math.round(v / hold.total_value * 100) : 0, "#7aa2ff")).join("") || '<div class="note">No holdings yet.</div>';
+  const topStock = H.filter((h) => h.value).slice().sort((a, b) => (b.value || 0) - (a.value || 0))[0];
+  const topStockPct = (topStock && hold.total_value) ? Math.round(topStock.value / hold.total_value * 100) : 0;
+  const topSecPct = (secRows.length && hold.total_value) ? Math.round(secRows[0][1] / hold.total_value * 100) : 0;
+  const riskFlags = [];
+  if (topStock && topStockPct > 25) riskFlags.push(`<div class="risk-f warn">⚠ ${esc(topStock.name)} is ${topStockPct}% of holdings — concentrated.</div>`);
+  if (secRows.length && topSecPct > 40) riskFlags.push(`<div class="risk-f warn">⚠ ${secRows[0][0]} is ${topSecPct}% of holdings — sector concentration.</div>`);
+  if (!riskFlags.length && H.length) riskFlags.push(`<div class="risk-f ok">✓ Well spread — no stock over 25% or sector over 40%.</div>`);
+  const riskCard = `<div class="jc-snap" style="margin:0 0 6px"></div>
+     <div class="row"><span>Positions</span><span class="r-v">${H.length}</span></div>
+     <div class="row"><span>Sectors</span><span class="r-v">${secRows.length}</span></div>
+     <div class="row"><span>Largest position</span><span class="r-v ${topStockPct > 25 ? "no" : ""}">${topStockPct}%</span></div>
+     <div class="row"><span>Largest sector</span><span class="r-v ${topSecPct > 40 ? "no" : ""}">${topSecPct}%</span></div>
+     ${riskFlags.join("")}`;
+  const histCard = snaps.length >= 2
+    ? `<div class="hist-spark">${sparkSVG(vals)}</div>
+       <div class="row"><span>All-time</span><span class="r-v ${pcls(perfAll)}">${pfmt(perfAll)}</span></div>
+       <div class="row"><span>1 week</span><span class="r-v ${pcls(perf1w)}">${pfmt(perf1w)}</span></div>
+       <div class="row"><span>1 month</span><span class="r-v ${pcls(perf1m)}">${pfmt(perf1m)}</span></div>
+       <div class="row"><span>Drawdown from peak</span><span class="r-v ${pcls(drawdown)}">${pfmt(drawdown)}</span></div>
+       <div class="note">${snaps.length} daily snapshot${snaps.length === 1 ? "" : "s"} since ${snaps[0].date}.</div>`
+    : `<div class="note">Building history — one snapshot is saved each day you open the app. Come back tomorrow to see your portfolio trend, returns and drawdown.</div>`;
+
+  body.innerHTML = stats + cashCtl + `<div class="report-grid">
+    <div class="report-card"><h3>Portfolio over time</h3>${histCard}</div>
+    <div class="report-card"><h3>Allocation by stock</h3>${allocStock}</div>
+    <div class="report-card"><h3>Allocation by sector</h3>${allocSector}</div>
+    <div class="report-card"><h3>Concentration &amp; diversification</h3>${riskCard}</div>
     <div class="report-card"><h3>Signal distribution · universe</h3>${dist}</div>
-    <div class="report-card"><h3>Portfolio allocation</h3>${alloc}</div>
     <div class="report-card"><h3>Top gainers · 1 week</h3>${gainers}</div>
     <div class="report-card"><h3>Top losers · 1 week</h3>${losers}</div></div>`;
+  const cashEl = document.getElementById("repCash");
+  if (cashEl) cashEl.addEventListener("change", () => { const v = parseFloat(cashEl.value); setCash(isFinite(v) && v >= 0 ? v : 0); renderReports(); });
   setLive();
 }
 
@@ -1590,13 +1644,17 @@ function updateClock() {
 /* ---------- Phase 3: Trading Journal (IndexedDB) ---------- */
 // Journal entries grow over time, so they live in IndexedDB (not localStorage).
 // They are included in the Settings → Export backup / Restore.
-const JDB_NAME = "traderdash", JDB_STORE = "journal", JDB_VER = 1;
+const JDB_NAME = "traderdash", JDB_STORE = "journal", SNAP_STORE = "snapshots", JDB_VER = 2;
 let _jdb = null, journalPrefill = null;
 function jdb() {
   if (_jdb) return Promise.resolve(_jdb);
   return new Promise((resolve, reject) => {
     let req; try { req = indexedDB.open(JDB_NAME, JDB_VER); } catch (e) { reject(e); return; }
-    req.onupgradeneeded = () => { const db = req.result; if (!db.objectStoreNames.contains(JDB_STORE)) db.createObjectStore(JDB_STORE, { keyPath: "id" }); };
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(JDB_STORE)) db.createObjectStore(JDB_STORE, { keyPath: "id" });
+      if (!db.objectStoreNames.contains(SNAP_STORE)) db.createObjectStore(SNAP_STORE, { keyPath: "date" }); // one portfolio snapshot per day
+    };
     req.onsuccess = () => { _jdb = req.result; resolve(_jdb); };
     req.onerror = () => reject(req.error);
   });
@@ -1606,6 +1664,32 @@ function jAll() { return jTx("readonly").then((st) => new Promise((res, rej) => 
 function jPut(e) { return jTx("readwrite").then((st) => new Promise((res, rej) => { const r = st.put(e); r.onsuccess = () => res(e); r.onerror = () => rej(r.error); })); }
 function jDel(id) { return jTx("readwrite").then((st) => new Promise((res, rej) => { const r = st.delete(id); r.onsuccess = () => res(); r.onerror = () => rej(r.error); })); }
 function jBulkPut(arr) { return jdb().then((db) => new Promise((res, rej) => { const tx = db.transaction(JDB_STORE, "readwrite"), st = tx.objectStore(JDB_STORE); (arr || []).forEach((e) => { if (e && e.id != null) st.put(e); }); tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error); })); }
+/* ---------- Phase 4: portfolio snapshots (IndexedDB) + cash + sectors ---------- */
+function sTx(mode) { return jdb().then((db) => db.transaction(SNAP_STORE, mode).objectStore(SNAP_STORE)); }
+function snapAll() { return sTx("readonly").then((st) => new Promise((res, rej) => { const r = st.getAll(); r.onsuccess = () => res(r.result || []); r.onerror = () => rej(r.error); })).catch(() => []); }
+function snapPut(s) { return sTx("readwrite").then((st) => new Promise((res, rej) => { const r = st.put(s); r.onsuccess = () => res(); r.onerror = () => rej(r.error); })); }
+function snapBulkPut(arr) { return jdb().then((db) => new Promise((res, rej) => { const tx = db.transaction(SNAP_STORE, "readwrite"), st = tx.objectStore(SNAP_STORE); (arr || []).forEach((s) => { if (s && s.date) st.put(s); }); tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error); })); }
+// Capture (or refresh) today's portfolio snapshot — one per day, so drawdown and
+// performance-over-time build up as you open the app. Called on Dashboard/Reports load.
+async function snapToday(value, invested, cash) {
+  if (value == null || !isFinite(value)) return;
+  try { await snapPut({ date: new Date().toISOString().slice(0, 10), value: Math.round(value * 100) / 100, invested: Math.round((invested || 0) * 100) / 100, cash: Math.round((cash || 0) * 100) / 100 }); } catch (e) {}
+}
+function getCash() { try { const v = parseFloat(localStorage.getItem("cash")); return isFinite(v) && v >= 0 ? v : 0; } catch (e) { return 0; } }
+function setCash(v) { try { localStorage.setItem("cash", String(v)); } catch (e) {} }
+// Curated sector map for the universe (config, not market data). Unknown -> "Other".
+const SECTORS = {
+  "SUNPHARMA.NS": "Pharma", "AUROPHARMA.NS": "Pharma", "AJANTPHARM.NS": "Pharma", "IPCALAB.NS": "Pharma",
+  "NATCOPHARM.NS": "Pharma", "JBCHEPHARM.NS": "Pharma", "CAPLIPOINT.NS": "Pharma", "APOLLOHOSP.NS": "Healthcare",
+  "SBIN.NS": "Banks", "HDFCBANK.NS": "Banks", "ICICIBANK.NS": "Banks", "PNB.NS": "Banks", "YESBANK.NS": "Banks", "IOB.NS": "Banks",
+  "TCS.NS": "IT", "INFY.NS": "IT", "RELIANCE.NS": "Energy", "IOC.NS": "Energy",
+  "MARUTI.NS": "Auto", "EICHERMOT.NS": "Auto", "M&M.NS": "Auto", "BALKRISIND.NS": "Auto ancillary",
+  "COALINDIA.NS": "Metals & mining", "NMDC.NS": "Metals & mining", "JINDALSTEL.NS": "Metals & mining",
+  "CUMMINSIND.NS": "Capital goods", "TRIDENT.NS": "Textiles", "IDEA.NS": "Telecom", "IRFC.NS": "Financials",
+  "ADANIPOWER.NS": "Power & utilities", "RPOWER.NS": "Power & utilities", "JPPOWER.NS": "Power & utilities",
+  "SJVN.NS": "Power & utilities", "NHPC.NS": "Power & utilities", "SUZLON.NS": "Power & utilities",
+};
+function sectorOf(sym) { return SECTORS[(sym || "").toUpperCase()] || "Other"; }
 function esc(s) { return (s || "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
 // Snapshot the engine's signal at the moment of entry (reuses existing data — no recompute).
 function journalSnapshot(d) {

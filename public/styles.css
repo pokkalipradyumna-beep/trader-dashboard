@@ -545,6 +545,24 @@ button{font-family:inherit}
 .mover-row:last-child{border-bottom:0}
 .mover-row .mv-n{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .mover-row .mv-c{font-weight:700;white-space:nowrap}
+/* Phase 4: cash bar, portfolio history, risk flags */
+.cashbar{display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px;background:var(--surface);border:1px solid var(--line);
+  border-radius:var(--radius);padding:13px 16px;margin-bottom:16px}
+.cashbar .cash-l{font-size:12px;font-weight:700;color:var(--faint);text-transform:uppercase;letter-spacing:.04em}
+.cashbar .al-in{background:var(--surface2);border:1px solid var(--line);color:var(--txt);font-family:inherit;font-size:13.5px;
+  padding:8px 12px;border-radius:9px;outline:none;width:150px}
+.cashbar .al-in:focus{border-color:rgba(var(--accent-rgb),.55)}
+.cashbar .cash-hint{font-size:12px;color:var(--dim);margin-left:auto}
+.report-card .row{display:flex;justify-content:space-between;align-items:center;padding:6px 0;font-size:12.5px;border-bottom:1px solid #1a2029}
+.report-card .row:last-child{border-bottom:0}
+.report-card .row .r-v{font-weight:700}
+.report-card .row .r-v.up{color:#4ade80} .report-card .row .r-v.down{color:#f87171} .report-card .row .r-v.no{color:#f87171}
+.hist-spark{height:56px;margin-bottom:10px}
+.hist-spark svg{width:100%;height:100%;display:block;overflow:visible}
+.risk-f{font-size:12px;margin-top:10px;padding:8px 11px;border-radius:8px;line-height:1.4}
+.risk-f.warn{color:#fbbf24;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.28)}
+.risk-f.ok{color:#4ade80;background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.26)}
+@media(max-width:560px){ .cashbar .cash-hint{margin-left:0;flex:1 1 100%} .cashbar .al-in{flex:1} }
 @media(max-width:760px){.report-grid{grid-template-columns:1fr}}
 @media(max-width:720px){
   .statrow{grid-template-columns:repeat(2,1fr)}
