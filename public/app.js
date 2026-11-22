@@ -1332,6 +1332,25 @@ function getAlerts() { try { return JSON.parse(localStorage.getItem("alerts") ||
 function saveAlerts(a) { try { localStorage.setItem("alerts", JSON.stringify(a)); } catch (e) {} }
 function updateBellDot() { const d = $("bellDot"); if (d) d.classList.toggle("hidden", !getAlerts().some((a) => a.fired)); }
 let alOp = "above", alType = "price";
+let saSig = "", saQ = "", saConf = 0; // screener-alert builder state
+function pwOn() { return !!getSettings().portfolioWatch; }
+function setPw(v) { const s = getSettings(); s.portfolioWatch = !!v; saveSettings(s); }
+function getPwCats() { try { return JSON.parse(localStorage.getItem("pwCats") || "{}"); } catch (e) { return {}; } }
+function setPwCats(m) { try { localStorage.setItem("pwCats", JSON.stringify(m)); } catch (e) {} }
+function portfolioWatchSyms() {
+  const h = (getHoldings() || []).map((x) => (x.ticker || "").toUpperCase());
+  const w = (getWatch() || []).map((x) => (x.t || "").toUpperCase());
+  return [...new Set([...h, ...w])].filter(Boolean);
+}
+function screenMatch(x, f) {
+  return (!f.cat || x.category === f.cat) && (!f.q || x.quality === f.q) && (!f.conf || (x.confluence && x.confluence.bull >= f.conf));
+}
+function screenFilterText(f) {
+  const bits = [f.cat || "Any signal"];
+  if (f.q) bits.push("Quality " + f.q);
+  if (f.conf) bits.push(f.conf + "/4+ confluence");
+  return bits.join(" · ");
+}
 function alCondText(a) {
   const t = a.t.replace(".NS", "");
   const k = a.kind || "price";
@@ -1360,19 +1379,50 @@ function renderAlerts() {
     : alType === "pct"
     ? `<input id="alPct" class="al-in al-price" type="number" min="0" step="any" placeholder="± % move">`
     : `<span class="al-siginfo">Fires on a fresh weekly 9/21 buy or sell cross.</span>`;
-  body.innerHTML = `<div class="alert-add">
+  const symAlerts = alerts.filter((a) => a.kind !== "screen");
+  const screenAlerts = alerts.filter((a) => a.kind === "screen");
+  const pwSyms = portfolioWatchSyms().length;
+  // builder segments for screener alerts
+  const saSeg = (key, cur, opts) => `<div class="scf"><div class="scf-l">${key}</div><div class="seg" data-sa="${key}">${opts.map((o) => `<button data-v="${o.v}" class="${String(cur) === String(o.v) ? "active" : ""}">${o.t}</button>`).join("")}</div></div>`;
+  body.innerHTML = `<div class="pw-card">
+      <label class="tgl"><div><div class="pw-t">Watch my portfolio for signal changes</div>
+        <div class="sethint" style="margin:0">One alert for a fresh weekly 9/21 buy or sell cross on any of your <b>${pwSyms}</b> holdings &amp; watchlist stocks.</div></div>
+        <input type="checkbox" id="pwToggle"${pwOn() ? " checked" : ""}></label></div>
+    <div class="alert-add">
       <div class="acwrap"><input id="alSym" class="al-in" placeholder="Stock — name or symbol" autocomplete="off"><div id="alDrop" class="dropdown hidden"></div></div>
       ${typeSeg}${inputs}
       <button id="alAdd" class="btn">Add alert</button></div>
     <div class="al-note">⚑ Alerts use delayed (~15 min) data and fire once — they're reminders, not real-time notifications.</div>
-    ${alerts.length ? `<div class="alertlist">${alerts.map(alertRow).join("")}</div>`
-      : stateBox({ icon: "🔔", title: "No alerts yet", msg: "Add a price, % move, or weekly-signal alert above." })}`;
+    ${symAlerts.length ? `<div class="alertlist">${symAlerts.map(alertRow).join("")}</div>`
+      : stateBox({ icon: "🔔", title: "No alerts yet", msg: "Add a price, % move, or weekly-signal alert above." })}
+    <div class="al-sec">Screener alerts</div>
+    <div class="screen-alert-add">
+      <div class="sabuild">
+        ${saSeg("Signal", saSig, [{ v: "", t: "Any" }, { v: "STRONG BUY", t: "Strong" }, { v: "BUY", t: "Buy" }])}
+        ${saSeg("Quality", saQ, [{ v: "", t: "Any" }, { v: "PASS", t: "Pass" }])}
+        ${saSeg("Min confluence", saConf, [{ v: 0, t: "Any" }, { v: 3, t: "3+" }, { v: 4, t: "4/4" }])}
+      </div>
+      <button id="saAdd" class="btn">Create screener alert</button></div>
+    <div class="sethint" style="margin:-6px 0 12px">Fires when a stock enters this filter in the universe scan (checked every poll, delayed data).</div>
+    ${screenAlerts.length ? `<div class="alertlist">${screenAlerts.map(screenAlertRow).join("")}</div>` : ""}`;
   attachAutocomplete($("alSym"), $("alDrop"), (s) => { $("alSym").value = s.t; $("alSym").dataset.name = s.n; });
   $("alType").querySelectorAll("button").forEach((b) =>
     b.addEventListener("click", () => { alType = b.dataset.k; renderAlerts(); }));
   const opEl = document.getElementById("alOp");
   if (opEl) opEl.querySelectorAll("button").forEach((b) =>
     b.addEventListener("click", () => { alOp = b.dataset.op; opEl.querySelectorAll("button").forEach((x) => x.classList.toggle("active", x === b)); }));
+  document.getElementById("pwToggle").addEventListener("change", (e) => { setPw(e.target.checked); if (e.target.checked) { setPwCats({}); showToast("Watching your portfolio for signal changes", "ok"); } });
+  body.querySelectorAll("[data-sa]").forEach((seg) => seg.querySelectorAll("button").forEach((b) =>
+    b.addEventListener("click", () => {
+      const k = seg.dataset.sa, v = b.dataset.v;
+      if (k === "Signal") saSig = v; else if (k === "Quality") saQ = v; else saConf = +v;
+      seg.querySelectorAll("button").forEach((x) => x.classList.toggle("active", x === b));
+    })));
+  document.getElementById("saAdd").addEventListener("click", () => {
+    const a = getAlerts();
+    a.push({ id: Date.now(), kind: "screen", filter: { cat: saSig, q: saQ, conf: saConf }, lastSet: null });
+    saveAlerts(a); showToast("Screener alert created", "ok"); renderAlerts();
+  });
   $("alAdd").addEventListener("click", () => {
     let s = $("alSym").value.trim().toUpperCase(); if (!s) { showToast("Pick a stock", "err"); return; }
     if (!s.includes(".")) s += ".NS";
@@ -1392,20 +1442,34 @@ function renderAlerts() {
   body.querySelectorAll(".al-remove").forEach((b) =>
     b.addEventListener("click", () => { saveAlerts(getAlerts().filter((x) => String(x.id) !== b.dataset.id)); renderAlerts(); updateBellDot(); }));
 }
+function screenAlertRow(a) {
+  const n = (a.lastSet && a.lastSet.length) || 0;
+  return `<div class="alert-row"><div class="al-main"><div class="al-name">Screener <span class="al-tag">Enter</span></div>
+      <div class="al-cond">${screenFilterText(a.filter)}${n ? ` · <b>${n}</b> match${n === 1 ? "" : "es"} now` : ""}</div></div>
+    <span class="al-st armed">● Watching</span><button class="al-remove iconbtn" data-id="${a.id}" title="Remove" aria-label="Remove">✕</button></div>`;
+}
 async function checkAlerts() {
-  const active = getAlerts().filter((a) => !a.fired);
-  if (!active.length) return;
+  const alerts0 = getAlerts();
+  const active = alerts0.filter((a) => a.kind !== "screen" && !a.fired);
+  const screenAlerts = alerts0.filter((a) => a.kind === "screen");
+  const pw = pwOn();
+  if (!active.length && !screenAlerts.length && !pw) return;
   const quoteSyms = [...new Set(active.filter((a) => (a.kind || "price") !== "signal").map((a) => a.t))];
-  const signalSyms = [...new Set(active.filter((a) => a.kind === "signal").map((a) => a.t))];
+  const signalSet = new Set(active.filter((a) => a.kind === "signal").map((a) => a.t));
+  const pwSyms = pw ? portfolioWatchSyms() : [];
+  pwSyms.forEach((s) => signalSet.add(s));
   try {
     let q = {}, cats = {};
     if (quoteSyms.length) { const d = await (await fetch("/api/quote?symbols=" + encodeURIComponent(quoteSyms.join(",")))).json(); q = d.quotes || {}; }
-    // Signal alerts reuse the scanner's category (STRONG BUY/BUY = fresh 9/21 bull cross; SELL = fresh death cross) — no new engine call.
-    if (signalSyms.length) { const d = await (await fetch("/api/scan?symbols=" + encodeURIComponent(signalSyms.join(",")))).json(); (d.results || []).forEach((r) => { cats[r.symbol] = r.category; }); }
+    // Signal / portfolio-watch reuse the scanner's category (STRONG BUY/BUY = fresh 9/21 bull cross; SELL = fresh death cross) — no new engine call.
+    if (signalSet.size) { const d = await (await fetch("/api/scan?symbols=" + encodeURIComponent([...signalSet].join(",")))).json(); (d.results || []).forEach((r) => { cats[r.symbol] = r.category; }); }
+    // Screener alerts scan the whole universe to diff which stocks match the filter.
+    let universe = null;
+    if (screenAlerts.length) { const d = await (await fetch("/api/scanner")).json(); universe = (d.results || []).filter((x) => x.category !== "ERROR"); }
     let changed = false;
     const all = getAlerts();
     all.forEach((a) => {
-      if (a.fired) return;
+      if (a.kind === "screen" || a.fired) return;
       const kind = a.kind || "price";
       if (kind === "price") {
         const price = (q[a.t] || {}).price; if (price == null) return;
@@ -1430,6 +1494,40 @@ async function checkAlerts() {
         }
       }
     });
+    // Portfolio-wide signal watch: fire on a fresh buy/sell for any holding or watchlist stock.
+    if (pw) {
+      const pwCats = getPwCats(); let pwChanged = false;
+      const nameOf = (sym) => (getWatch().find((x) => (x.t || "").toUpperCase() === sym) || {}).n || sym.replace(".NS", "");
+      pwSyms.forEach((sym) => {
+        const cat = cats[sym]; if (cat == null) return;
+        const last = pwCats[sym];
+        if (last == null) { pwCats[sym] = cat; pwChanged = true; return; } // baseline, don't fire
+        if (cat !== last) {
+          const buy = cat === "STRONG BUY" || cat === "BUY", wasBuy = last === "STRONG BUY" || last === "BUY";
+          const sell = cat === "SELL", wasSell = last === "SELL";
+          if (buy && !wasBuy) showToast(`🔔 ${nameOf(sym)}: fresh weekly BUY signal (${cat}) — in your portfolio · delayed`, "ok");
+          else if (sell && !wasSell) showToast(`🔔 ${nameOf(sym)}: fresh weekly SELL signal — in your portfolio · delayed`, "ok");
+          pwCats[sym] = cat; pwChanged = true;
+        }
+      });
+      // prune symbols no longer tracked
+      Object.keys(pwCats).forEach((s) => { if (!pwSyms.includes(s)) { delete pwCats[s]; pwChanged = true; } });
+      if (pwChanged) setPwCats(pwCats);
+    }
+    // Screener alerts: notify when a stock enters the saved filter.
+    if (universe) {
+      all.forEach((a) => {
+        if (a.kind !== "screen") return;
+        const match = universe.filter((x) => screenMatch(x, a.filter)).map((x) => x.symbol);
+        if (a.lastSet == null) { a.lastSet = match; changed = true; return; } // baseline
+        const entered = match.filter((s) => !a.lastSet.includes(s));
+        if (entered.length) {
+          const names = entered.slice(0, 3).map((s) => (universe.find((x) => x.symbol === s) || {}).name || s).join(", ");
+          showToast(`🔔 ${entered.length} stock${entered.length === 1 ? "" : "s"} entered "${screenFilterText(a.filter)}": ${names}${entered.length > 3 ? "…" : ""} · delayed`, "ok");
+        }
+        if (JSON.stringify(match) !== JSON.stringify(a.lastSet)) { a.lastSet = match; changed = true; }
+      });
+    }
     if (changed) { saveAlerts(all); updateBellDot(); if (document.getElementById("page-alerts").classList.contains("active")) renderAlerts(); }
   } catch (e) {}
 }
