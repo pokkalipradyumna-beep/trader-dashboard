@@ -58,7 +58,7 @@ function renderState(el, o, retryFn) {
 let chart, candle, vol, l9, l21, l50, markersPrim, chartReady = false;
 let currentSym = null, currentTf = getSettings().defaultTf, lastCandle = null, emaAt = {}, lastStockData = null;
 const lastv = (a) => (a && a.length ? a[a.length - 1].value : null);
-const PAGE_TITLES = { dashboard: "Dashboard", search: "Search", watchlist: "Watchlist", screeners: "Screeners", alerts: "Alerts", reports: "Reports", journal: "Journal" };
+const PAGE_TITLES = { dashboard: "Dashboard", search: "Search", watchlist: "Watchlist", screeners: "Screeners", alerts: "Alerts", reports: "Reports", journal: "Journal", compare: "Compare" };
 function showPage(name) {
   document.querySelectorAll(".page").forEach((p) => p.classList.toggle("active", p.id === "page-" + name));
   document.querySelectorAll(".navlink,.side-link").forEach((b) => b.classList.toggle("active", b.dataset.page === name));
@@ -72,6 +72,7 @@ function showPage(name) {
   if (name === "alerts") loadAlerts();
   if (name === "reports") loadReports();
   if (name === "journal") loadJournal();
+  if (name === "compare") loadCompare();
   if (name === "search" && chartReady && chart) setTimeout(fitChart, 30);
 }
 document.querySelectorAll(".navlink,.side-link").forEach((b) =>
@@ -1039,7 +1040,7 @@ function buildSetPanel() {
 /* ---------- Phase 0: backup / restore + data health ---------- */
 // Every piece of your data that lives only in this browser. Export/restore keeps
 // it safe (a browser clear wipes localStorage) and moves it between devices.
-const BACKUP_KEYS = ["holdings", "watch", "alerts", "settings", "cash", "emaCfg", "rsiCfg", "macdCfg", "bbCfg", "stCfg"];
+const BACKUP_KEYS = ["holdings", "watch", "alerts", "settings", "cash", "compare", "emaCfg", "rsiCfg", "macdCfg", "bbCfg", "stCfg"];
 async function exportBackup() {
   const data = {};
   BACKUP_KEYS.forEach((k) => { try { const v = localStorage.getItem(k); if (v != null) data[k] = v; } catch (e) {} });
@@ -1882,6 +1883,59 @@ $("journalBtn").addEventListener("click", () => {
   journalPrefill = { t: currentSym, n: (d.quality && d.quality.name) || currentSym.replace(".NS", ""), price: d.price, snapshot: journalSnapshot(d) };
   showPage("journal");
 });
+
+/* ---------- Compare 2–5 stocks (reuses /api/scan — one call, rich rows) ---------- */
+function getCompare() { try { return JSON.parse(localStorage.getItem("compare") || "[]"); } catch (e) { return []; } }
+function saveCompare(l) { try { localStorage.setItem("compare", JSON.stringify(l)); } catch (e) {} }
+async function loadCompare() {
+  const list = getCompare();
+  if (list.length < 2) { renderCompare([]); return; }
+  renderCompare(null); // show picker + loading
+  let rows;
+  try {
+    const d = await (await fetch("/api/scan?symbols=" + encodeURIComponent(list.map((x) => x.t).join(",")))).json();
+    const byT = {}; (d.results || []).forEach((r) => { byT[r.symbol] = r; });
+    rows = list.map((x) => byT[x.t] || { symbol: x.t, name: x.n, _err: true });
+  } catch (e) { rows = list.map((x) => ({ symbol: x.t, name: x.n, _err: true })); }
+  renderCompare(rows);
+}
+function cmpRegime(reg) { return reg === "above" ? '<span class="up">▲ above</span>' : reg === "below" ? '<span class="down">▼ below</span>' : "—"; }
+function compareTable(rows) {
+  const col = (r) => `<th>${logoTile(r.name, r.symbol)}<div class="cmp-hn">${esc(r.name || r.symbol)}</div><div class="cmp-ht">${(r.symbol || "").replace(".NS", "")}</div></th>`;
+  const defs = [
+    ["Price", (r) => `<td>${r.price != null ? "₹" + fmt(r.price) : "—"}</td>`],
+    ["1-week change", (r) => `<td class="${r.chg1w == null ? "" : (r.chg1w >= 0 ? "up" : "down")}">${r.chg1w == null ? "—" : (r.chg1w >= 0 ? "+" : "") + r.chg1w + "%"}</td>`],
+    ["Signal", (r) => `<td><span class="badge ${CAT_BADGE[r.category] || "WAIT"}">${r.category || "—"}</span></td>`],
+    ["9/21 (entry)", (r) => `<td>${cmpRegime(r.s9)}</td>`],
+    ["21/50 (trend)", (r) => `<td>${cmpRegime(r.s21)}</td>`],
+    ["Confluence", (r) => `<td>${r.confluence ? r.confluence.bull + "/" + r.confluence.total + " " + r.confluence.side : "—"}</td>`],
+    ["Quality", (r) => `<td>${r.quality ? `<span class="pill ${r.quality === "PASS" ? "ok" : r.quality === "NEAR" ? "near" : "no"}">${r.quality}</span>` : '<span class="cmp-na">not rated</span>'}</td>`],
+    ["Valuation", (r) => `<td>${r.valuation ? `<span class="pill ${r.valuation === "CHEAP" ? "ok" : r.valuation === "FAIR" ? "near" : "no"}">${r.valuation}</span>` : "—"}</td>`],
+    ["Upside (5-model)", (r) => `<td class="${r.upside == null || r.upside_flag ? "" : (r.upside >= 0 ? "up" : "down")}">${r.upside == null ? "—" : (r.upside_flag ? "~" : "") + (r.upside >= 0 ? "+" : "") + r.upside + "%" + (r.upside_flag ? " ⚠" : "")}</td>`],
+  ];
+  const cellOf = (r, fn) => r._err ? `<td class="cmp-na">unavailable</td>` : fn(r);
+  const head = `<tr><th class="cmp-corner">Metric</th>${rows.map(col).join("")}</tr>`;
+  const bodyRows = defs.map(([l, fn]) => `<tr><td class="cmp-metric">${l}</td>${rows.map((r) => cellOf(r, fn)).join("")}</tr>`).join("");
+  const openRow = `<tr><td class="cmp-metric"></td>${rows.map((r) => `<td><button class="btn sm ghost" data-open="${r.symbol}">Open chart</button></td>`).join("")}</tr>`;
+  return `<div class="cmp-tablewrap"><table class="cmp-table"><thead>${head}</thead><tbody>${bodyRows}${openRow}</tbody></table></div>`;
+}
+function renderCompare(rows) {
+  const body = $("compareBody"); if (!body) return;
+  const list = getCompare();
+  const canAdd = list.length < 5;
+  const chips = list.map((x) => `<span class="cmp-chip">${esc(x.n || x.t)}<button data-rm="${x.t}" title="Remove" aria-label="Remove">✕</button></span>`).join("");
+  const picker = `<div class="cmp-add">
+      <div class="acwrap jgrow"><input id="cmpSym" class="al-in" placeholder="${canAdd ? "Add a stock (up to 5)…" : "Max 5 — remove one to add another"}"${canAdd ? "" : " disabled"} autocomplete="off"><div id="cmpDrop" class="dropdown hidden"></div></div>
+      <div class="cmp-chips">${chips || '<span class="cmp-none">No stocks selected yet</span>'}</div></div>`;
+  let tbl;
+  if (list.length < 2) tbl = stateBox({ icon: "📊", title: "Add at least 2 stocks", msg: "Search above to add up to 5 stocks and compare their price, weekly signal, quality and valuation side by side." });
+  else if (rows == null) tbl = '<div class="scanhint"><span class="spinner"></span>Loading comparison…</div>';
+  else tbl = compareTable(rows);
+  body.innerHTML = picker + tbl;
+  attachAutocomplete($("cmpSym"), $("cmpDrop"), (s) => { const l = getCompare(); if (l.length >= 5 || l.some((x) => x.t === s.t)) return; l.push({ t: s.t, n: s.n }); saveCompare(l); loadCompare(); });
+  body.querySelectorAll("[data-rm]").forEach((b) => b.addEventListener("click", () => { saveCompare(getCompare().filter((x) => x.t !== b.dataset.rm)); loadCompare(); }));
+  body.querySelectorAll("[data-open]").forEach((b) => b.addEventListener("click", () => loadStock(b.dataset.open)));
+}
 
 /* ---------- boot ---------- */
 updateBellDot();
