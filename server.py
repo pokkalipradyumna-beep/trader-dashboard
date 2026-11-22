@@ -148,6 +148,162 @@ def _intraday(symbol, interval="15m", rng="5d"):
             "interval": interval, "bars": bars}
 
 
+def _news_company(symbol):
+    """Best human name for a symbol, for the news query. Reads the curated
+    fundamentals name, then the _EXTRA low-priced list, else strips the
+    exchange suffix. Never fabricates — just the display name."""
+    sym = symbol.upper()
+    f = (quality._load().get("companies") or {}).get(sym)
+    if f and f.get("name"):
+        return f["name"]
+    if sym in _EXTRA:
+        return _EXTRA[sym]
+    return sym.split(".")[0].replace("-", " ").title()
+
+
+_TAG_RE = __import__("re").compile(r"<[^>]+>")
+
+
+def _news(symbol):
+    """Latest headlines for a company from Google News RSS. FACTS ONLY —
+    headline, source, date, link, snippet — no sentiment or impact label
+    (reliable sentiment needs an NLP service this app doesn't run, so we
+    don't fake one). Fully separate from the weekly engine. On any failure
+    it returns an empty list with a note instead of breaking the page."""
+    import urllib.request as _ur, urllib.parse as _up
+    import html as _html
+    from email.utils import parsedate_to_datetime as _pdt
+    name = _news_company(symbol)
+    # "<Company> share" biases Google News toward market coverage of the stock.
+    q = _up.quote('"%s" share price' % name)
+    url = ("https://news.google.com/rss/search?q=%s&hl=en-IN&gl=IN&ceid=IN:en" % q)
+    req = _ur.Request(url, headers={"User-Agent": engine.UA})
+    try:
+        with _ur.urlopen(req, timeout=15, context=engine._SSL_CTX) as resp:
+            raw = resp.read().decode("utf-8", "replace")
+    except Exception as e:  # noqa: BLE001 — news is best-effort, never fatal
+        return {"company": name, "items": [], "note": "News feed is unavailable right now.",
+                "error": str(e)[:120]}
+    try:
+        import xml.etree.ElementTree as ET
+        root = ET.fromstring(raw)
+    except Exception:  # noqa: BLE001
+        return {"company": name, "items": [], "note": "Couldn't read the news feed right now."}
+    items = []
+    for it in root.iter("item"):
+        title = (it.findtext("title") or "").strip()
+        link = (it.findtext("link") or "").strip()
+        if not title or not link:
+            continue
+        src_el = it.find("source")
+        source = (src_el.text or "").strip() if src_el is not None else ""
+        # Google formats titles as "Headline - Source"; split the source off.
+        if not source and " - " in title:
+            source = title.rsplit(" - ", 1)[1].strip()
+        if source and title.endswith(" - " + source):
+            title = title[: -(len(source) + 3)].strip()
+        pub = (it.findtext("pubDate") or "").strip()
+        iso = None
+        try:
+            iso = _pdt(pub).astimezone().isoformat()
+        except Exception:  # noqa: BLE001
+            iso = None
+        desc = it.findtext("description") or ""
+        snippet = _html.unescape(_TAG_RE.sub(" ", desc)).strip()
+        snippet = " ".join(snippet.split())
+        # Google's description is often just a repeat of the headline + source list.
+        if snippet[:60].lower() == title[:60].lower():
+            snippet = ""
+        items.append({"title": _html.unescape(title), "source": source,
+                      "date": iso, "pub": pub, "link": link,
+                      "snippet": snippet[:240]})
+        if len(items) >= 8:
+            break
+    note = None if items else "No recent news found for this company."
+    return {"company": name, "items": items, "note": note}
+
+
+# ---- Short-term screener (Phase C) ------------------------------------------
+# A SEPARATE screener on the DAILY timeframe for short-term (days–weeks) setups.
+# It does NOT touch the weekly 9/21·21/50 engine or its BUY/SELL signals — it
+# reuses only engine.ema / engine._rsi_last / engine.fetch_candles (pure math +
+# fetch). There is deliberately NO intraday screener: honest intraday needs
+# real-time data the delayed Yahoo feed can't provide. Daily data here is Yahoo
+# ~15-min delayed end-of-day, labelled as such. Only real setups with enough
+# data are returned — never a recommendation without sufficient analysis.
+def _st_one(task):
+    sym, f = task
+    try:
+        bars = engine.fetch_candles(sym, interval="1d", rng="6mo").get("bars") or []
+    except Exception:  # noqa: BLE001 — a thin/failed name is simply skipped
+        return None
+    closes = [b["close"] for b in bars if b.get("close") is not None]
+    # Need enough daily history for a trustworthy EMA21 + RSI read.
+    if len(closes) < 40:
+        return None
+    e9, e21 = engine.ema(closes, 9), engine.ema(closes, 21)
+    if e9[-1] is None or e21[-1] is None:
+        return None
+    rsi = engine._rsi_last(closes, 14)
+    price = closes[-1]
+    up = e9[-1] > e21[-1]
+    # Fresh daily bullish cross in the last 5 sessions?
+    fresh = False
+    for i in range(max(1, len(closes) - 5), len(closes)):
+        if e9[i] is not None and e21[i] is not None and e9[i - 1] is not None and e21[i - 1] is not None:
+            if e9[i - 1] <= e21[i - 1] and e9[i] > e21[i]:
+                fresh = True
+                break
+    lows = [b["low"] for b in bars[-20:] if b.get("low") is not None]
+    highs = [b["high"] for b in bars[-20:] if b.get("high") is not None]
+    support = min(lows) if lows else None
+    resistance = max(highs) if highs else None
+    chg1d = round((closes[-1] - closes[-2]) / closes[-2] * 100, 2) if len(closes) >= 2 and closes[-2] else None
+    overbought = rsi is not None and rsi >= 72
+    # ---- Decide whether this is a real short-term setup (else drop it) ----
+    setup = score = None
+    reasons, risks = [], []
+    if fresh and price > e9[-1] and not overbought:
+        setup, score = "Fresh breakout", 1
+        reasons = ["Daily 9-EMA just crossed above the 21-EMA (fresh momentum turn).",
+                   "Price is holding above the 9-day EMA."]
+    elif up and price >= e21[-1] and (rsi is None or (45 <= rsi <= 68)):
+        setup, score = "Uptrend continuation", 2
+        reasons = ["Daily trend is up (9-EMA above 21-EMA).",
+                   "Price is above the 21-day EMA — structure intact."]
+    else:
+        return None  # not a clean short-term candidate — don't recommend it
+    if rsi is not None:
+        reasons.append("Daily RSI %d (%s)." % (round(rsi),
+                       "strong" if rsi >= 60 else "healthy" if rsi >= 50 else "recovering"))
+    # Honest, setup-specific risks + a stop idea.
+    risks.append("Uses end-of-day data that's ~15-min delayed — not for precise day timing.")
+    if resistance and price and resistance > price * 1.002:
+        risks.append("Overhead resistance near ₹%s — can stall there." % round(resistance, 2))
+    risks.append("Invalidated on a daily close back below the 21-EMA (₹%s) — natural stop." % round(e21[-1], 2))
+    if rsi is not None and rsi >= 68:
+        risks.append("RSI is getting stretched (%d) — chasing adds risk." % round(rsi))
+    name = (f.get("name") if f else None) or _news_company(sym)
+    return {"symbol": sym, "name": name, "price": round(price, 2), "setup": setup, "score": score,
+            "ema9": round(e9[-1], 2), "ema21": round(e21[-1], 2),
+            "rsi": round(rsi, 1) if rsi is not None else None,
+            "support": round(support, 2) if support else None,
+            "resistance": round(resistance, 2) if resistance else None,
+            "stop": round(e21[-1], 2), "chg1d": chg1d,
+            "reasons": reasons, "risks": risks,
+            "spark": [round(c, 2) for c in closes[-16:]]}
+
+
+def _shortterm():
+    companies = quality._load().get("companies") or {}
+    tasks = [(s, f) for s, f in companies.items()]
+    tasks += [(s, None) for s in _EXTRA if s not in companies]
+    with ThreadPoolExecutor(max_workers=min(12, max(1, len(tasks)))) as ex:
+        rows = [r for r in ex.map(_st_one, tasks) if r is not None]
+    rows.sort(key=lambda x: (x["score"], -(x["rsi"] or 0), x["symbol"]))
+    return rows
+
+
 class Handler(BaseHTTPRequestHandler):
     def _send(self, code, body, ctype="application/json"):
         b = body.encode("utf-8") if isinstance(body, str) else body
@@ -220,6 +376,13 @@ class Handler(BaseHTTPRequestHandler):
                     iv = "15m"
                 rng = "5d" if iv in ("5m", "15m") else "1mo"
                 self._send(200, json.dumps(_intraday(sym, iv, rng)))
+                return
+            if u.path == "/api/news":
+                sym = (qs.get("symbol") or ["RELIANCE.NS"])[0]
+                self._send(200, json.dumps(_news(sym)))
+                return
+            if u.path == "/api/shortterm":
+                self._send(200, json.dumps({"as_of_delayed": True, "results": _shortterm()}))
                 return
             if u.path == "/api/scan":
                 syms = [s.strip() for s in (qs.get("symbols") or [""])[0].split(",") if s.strip()]

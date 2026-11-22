@@ -243,6 +243,37 @@ button{font-family:inherit}
 .psp-note{font-size:11px;color:var(--faint);margin-top:9px}
 .psp.delayed .psp-note{color:var(--warn);font-weight:600}
 .d-note{font-size:12px;color:var(--faint);margin-top:8px;line-height:1.5}
+/* ---- News (Phase B) ---- */
+.news-list{display:flex;flex-direction:column;gap:8px}
+.news-item{display:block;text-decoration:none;color:inherit;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;transition:border-color .15s,background .15s}
+.news-item:hover{border-color:var(--accent);background:var(--card-hi,var(--card))}
+.news-title{font-size:14px;font-weight:600;line-height:1.4;color:var(--text)}
+.news-snip{font-size:12.5px;color:var(--dim);margin-top:5px;line-height:1.5}
+.news-meta{font-size:11.5px;color:var(--faint);margin-top:7px;display:flex;flex-wrap:wrap;gap:0}
+.news-go{color:var(--accent);font-weight:600}
+.news-foot{font-size:11px;color:var(--faint);margin-top:10px;line-height:1.5}
+/* ---- Short-term screener (Phase C) ---- */
+.screenmode{display:flex;gap:8px;margin-bottom:14px}
+.screenmode button{flex:0 0 auto;padding:9px 16px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--dim);font-size:13px;font-weight:600;cursor:pointer;transition:all .15s}
+.screenmode button:hover{border-color:var(--accent)}
+.screenmode button.active{background:var(--accent);border-color:var(--accent);color:#06281c}
+.st-banner{background:var(--card);border:1px solid var(--warn);border-left:3px solid var(--warn);border-radius:12px;padding:12px 14px;font-size:12.5px;color:var(--dim);line-height:1.6;margin-bottom:14px}
+.st-banner b{color:var(--text)}
+.st-card{cursor:pointer}
+.st-top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+.st-name{font-size:14.5px;font-weight:700;color:var(--text)}
+.st-sym{font-size:11.5px;color:var(--faint);margin-top:1px}
+.st-price{font-size:14px;font-weight:700;text-align:right;white-space:nowrap}
+.st-price .up{color:var(--buy)}.st-price .down{color:var(--sell)}
+.st-tags{display:flex;gap:6px;margin:9px 0 4px}
+.st-setup{font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px}
+.st-setup.st-fresh{background:rgba(21,184,112,.16);color:var(--buy)}
+.st-setup.st-cont{background:rgba(59,130,246,.16);color:#60a5fa}
+.st-rsi{font-size:11px;font-weight:600;padding:3px 9px;border-radius:999px;background:var(--line);color:var(--dim)}
+.st-lv{display:flex;flex-wrap:wrap;gap:10px;margin-top:10px;padding-top:9px;border-top:1px solid var(--line);font-size:11.5px;color:var(--dim)}
+.st-lv b{color:var(--text)}
+.st-lv .st-stop b{color:var(--warn)}
+.st-foot{font-size:11px;color:var(--warn);font-weight:600;margin-top:10px}
 
 /* panel blocks */
 .block{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px}

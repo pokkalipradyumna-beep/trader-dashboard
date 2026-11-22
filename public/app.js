@@ -618,6 +618,45 @@ function perspectiveCard(p) {
       ${lv}
       ${p.note ? `<div class="psp-note">${p.note}</div>` : ""}</div>`;
 }
+
+/* ---------- News (Phase B) — facts only, no sentiment/impact label ----------
+   Reads /api/news (Google News RSS, parsed server-side). Headline, source,
+   date and link only. Graceful on no news / feed failure. Does not touch the
+   weekly engine or any signal. */
+function _esc(s) { const d = document.createElement("div"); d.textContent = s == null ? "" : String(s); return d.innerHTML; }
+function _newsAgo(iso) {
+  if (!iso) return "";
+  const t = Date.parse(iso); if (isNaN(t)) return "";
+  const mins = Math.round((Date.now() - t) / 60000);
+  if (mins < 60) return mins <= 1 ? "just now" : mins + " min ago";
+  const hrs = Math.round(mins / 60); if (hrs < 24) return hrs + "h ago";
+  const days = Math.round(hrs / 24); if (days < 30) return days + "d ago";
+  try { return new Date(t).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }); }
+  catch (e) { return new Date(t).toLocaleDateString(); }
+}
+async function loadNews(sym) {
+  const host = document.getElementById("newsBox");
+  if (!host) return;
+  let data = null;
+  try { data = await (await fetch("/api/news?symbol=" + encodeURIComponent(sym))).json(); }
+  catch (e) { host.innerHTML = `<div class="block"><div class="note">News is unavailable right now. The feed couldn't be reached — this doesn't affect prices or signals.</div></div>`; return; }
+  const items = (data && data.items) || [];
+  if (!items.length) {
+    host.innerHTML = `<div class="block"><div class="note">${_esc((data && data.note) || "No recent news found for this company.")}</div></div>`;
+    return;
+  }
+  const rows = items.map((it) => {
+    const when = _newsAgo(it.date);
+    const meta = [it.source ? _esc(it.source) : "", when].filter(Boolean).join(" · ");
+    return `<a class="news-item" href="${_esc(it.link)}" target="_blank" rel="noopener noreferrer">
+        <div class="news-title">${_esc(it.title)}</div>
+        ${it.snippet ? `<div class="news-snip">${_esc(it.snippet)}</div>` : ""}
+        <div class="news-meta">${meta}${meta ? " · " : ""}<span class="news-go">open ↗</span></div>
+      </a>`;
+  }).join("");
+  host.innerHTML = `<div class="news-list">${rows}</div>
+    <div class="news-foot">Headlines via Google News · dates are as reported · opens the original source. Not investment advice.</div>`;
+}
 function renderDetail(d) {
   const v = d.verdict, q = d.quality, val = d.valuation;
   const strong = v.headline.startsWith("STRONG");
@@ -721,9 +760,14 @@ function renderDetail(d) {
         <div class="d-note">Sector, industry and a company description aren't in the current data set — the app focuses on the weekly method, quality and valuation. These can be added in a later phase with a fundamentals data source.</div></div>
     </div></section>`;
 
+  // ---- Section 6: Latest news (facts only — headline, source, date, link) ----
+  html += `<section class="d-sec"><h2 class="d-h"><span class="d-num">6</span>Latest news</h2>
+      <div id="newsBox"><div class="scanhint"><span class="spinner"></span>Loading news…</div></div></section>`;
+
   $("detailPanel").innerHTML = html;
   lastStockData = d;
   loadPerspectives(d); // async: fills the Trading-perspectives section (daily + delayed intraday)
+  loadNews(d.symbol);  // async: fills the Latest-news section (Google News RSS, facts only)
 }
 
 /* ---------- search autocomplete (R-2) ---------- */
@@ -1777,22 +1821,30 @@ async function renderReports(quiet) {
 }
 
 /* ---------- Screeners (N4) — filters the universe, reuses scanner data ---------- */
-let screenData = [], screenFilters = { cat: "", q: "", v: "", conf: 0 };
+let screenData = [], screenFilters = { cat: "", q: "", v: "", conf: 0 }, screenMode = "weekly";
 async function renderScreeners() {
   const body = $("screenBody");
   if (!body) return;
+  body.innerHTML = `<div class="screenmode">
+      <button data-sm="weekly" class="${screenMode === "weekly" ? "active" : ""}">📅 Weekly method</button>
+      <button data-sm="short" class="${screenMode === "short" ? "active" : ""}">⚡ Short-term (daily)</button>
+    </div><div id="screenInner"></div>`;
+  body.querySelectorAll(".screenmode button").forEach((b) =>
+    b.addEventListener("click", () => { screenMode = b.dataset.sm; renderScreeners(); }));
+  if (screenMode === "short") { renderShortTerm(); return; }
+  const inner = $("screenInner");
   if (!screenData.length) {
-    body.innerHTML = '<div class="scanhint"><span class="spinner"></span>Loading your universe…</div>';
+    inner.innerHTML = '<div class="scanhint"><span class="spinner"></span>Loading your universe…</div>';
     try {
       const d = await (await fetch("/api/scanner")).json();
       screenData = (d.results || []).filter((x) => x.category !== "ERROR");
-    } catch (e) { renderState(body, { icon: "📡", title: "Couldn't load the universe", msg: "Check your connection and try again.", retry: true }, renderScreeners); return; }
+    } catch (e) { renderState(inner, { icon: "📡", title: "Couldn't load the universe", msg: "Check your connection and try again.", retry: true }, renderScreeners); return; }
   }
   drawScreeners();
   setLive();
 }
 function drawScreeners() {
-  const body = $("screenBody"), f = screenFilters;
+  const body = $("screenInner") || $("screenBody"), f = screenFilters;
   const seg = (label, key, opts) => `<div class="scf"><div class="scf-l">${label}</div><div class="seg">${opts.map((o) =>
     `<button class="${String(f[key]) === String(o.v) ? "active" : ""}" data-sk="${key}" data-sv="${o.v}">${o.t}</button>`).join("")}</div></div>`;
   const filters = `<div class="screenbar">
@@ -1818,6 +1870,57 @@ function drawScreeners() {
   const exp = document.getElementById("scExport");
   if (exp) exp.addEventListener("click", exportScreenerCSV);
   const list = body.querySelector(".stocklist"); if (list) wireStockCards(list);
+}
+
+/* ---------- Short-term screener (Phase C) — SEPARATE daily-timeframe screen.
+   Does not use or change the weekly method. Delayed EOD data, clearly labelled.
+   No intraday screen: honest intraday needs real-time data we don't have. ---- */
+let shortTermData = null;
+async function renderShortTerm(force) {
+  const inner = $("screenInner");
+  if (!inner) return;
+  const banner = `<div class="st-banner">⚡ <b>Short-term screener</b> — scans the daily chart (not the weekly method) for setups playable over <b>days to a few weeks</b>.
+      Uses Yahoo end-of-day data that's <b>~15-min delayed</b> — a watchlist, not live signals, and <b>not investment advice</b>.
+      There's deliberately <b>no intraday screener</b>: honest intraday needs real-time data this app doesn't have.</div>`;
+  if (!shortTermData || force) {
+    inner.innerHTML = banner + '<div class="scanhint"><span class="spinner"></span>Scanning the daily charts…</div>';
+    try {
+      const d = await (await fetch("/api/shortterm")).json();
+      shortTermData = d.results || [];
+    } catch (e) {
+      renderState(inner, { icon: "📡", title: "Couldn't run the short-term scan", msg: "The data feed couldn't be reached. Your weekly method and prices are unaffected.", retry: true }, () => renderShortTerm(true));
+      return;
+    }
+  }
+  const rows = shortTermData;
+  const head = `<div class="screen-count"><span class="sc-n"><b>${rows.length}</b> short-term ${rows.length === 1 ? "setup" : "setups"} found</span>
+      <button class="sc-clear" id="stRefresh">↻ Rescan</button></div>`;
+  inner.innerHTML = banner + head +
+    (rows.length ? `<div class="stocklist">${rows.map(shortTermCard).join("")}</div>`
+      : stateBox({ icon: "🔍", title: "No clean short-term setups right now", msg: "Nothing in the universe meets the daily-trend criteria today. No setup is better than a forced one — check back after the next close." }));
+  const rf = document.getElementById("stRefresh");
+  if (rf) rf.addEventListener("click", () => renderShortTerm(true));
+  const list = inner.querySelector(".stocklist"); if (list) wireStockCards(list);
+}
+function shortTermCard(r) {
+  const chg = r.chg1d;
+  const chgCls = chg == null ? "" : chg >= 0 ? "up" : "down";
+  const setupCls = r.setup === "Fresh breakout" ? "st-fresh" : "st-cont";
+  const lv = `<div class="st-lv">
+      <span>Support <b>₹${fmt(r.support)}</b></span>
+      <span>Now <b>₹${fmt(r.price)}</b></span>
+      <span>Resistance <b>₹${fmt(r.resistance)}</b></span>
+      <span class="st-stop">Stop <b>₹${fmt(r.stop)}</b></span></div>`;
+  return `<div class="card st-card" data-sym="${r.symbol}">
+      <div class="st-top">
+        <div><div class="st-name">${r.name}</div><div class="st-sym">${r.symbol.replace(/\.(NS|BO)$/i, "")}</div></div>
+        <div class="st-price">₹${fmt(r.price)} ${chg != null ? `<span class="${chgCls}">${chg >= 0 ? "+" : ""}${chg}%</span>` : ""}</div>
+      </div>
+      <div class="st-tags"><span class="st-setup ${setupCls}">${r.setup}</span>${r.rsi != null ? `<span class="st-rsi">RSI ${r.rsi}</span>` : ""}</div>
+      <div class="subtitle">Why</div>${r.reasons.map((x) => `<div class="psp-r">• ${x}</div>`).join("")}
+      <div class="subtitle">Risks</div>${r.risks.map((x) => `<div class="psp-risk">⚠ ${x}</div>`).join("")}
+      ${lv}
+      <div class="st-foot">Daily · ~15-min delayed · tap for full chart &amp; weekly signal</div></div>`;
 }
 
 /* ---------- market widget (sidebar) ---------- */
