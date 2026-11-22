@@ -1844,10 +1844,12 @@ async function renderScreeners() {
   body.innerHTML = `<div class="screenmode">
       <button data-sm="weekly" class="${screenMode === "weekly" ? "active" : ""}">📅 Weekly method</button>
       <button data-sm="short" class="${screenMode === "short" ? "active" : ""}">⚡ Short-term (daily)</button>
+      <button data-sm="intraday" class="${screenMode === "intraday" ? "active" : ""}">⏱ Intraday (delayed)</button>
     </div><div id="screenInner"></div>`;
   body.querySelectorAll(".screenmode button").forEach((b) =>
     b.addEventListener("click", () => { screenMode = b.dataset.sm; renderScreeners(); }));
   if (screenMode === "short") { renderShortTerm(); return; }
+  if (screenMode === "intraday") { renderIntraday(); return; }
   const inner = $("screenInner");
   if (!screenData.length) {
     inner.innerHTML = '<div class="scanhint"><span class="spinner"></span>Loading your universe…</div>';
@@ -1937,6 +1939,57 @@ function shortTermCard(r) {
       <div class="subtitle">Risks</div>${r.risks.map((x) => `<div class="psp-risk">⚠ ${x}</div>`).join("")}
       ${lv}
       <div class="st-foot">Daily · ~15-min delayed · tap for full chart &amp; weekly signal</div></div>`;
+}
+
+/* ---------- Intraday snapshot (DELAYED, illustrative only) ----------
+   A clearly-labelled delayed 15-minute momentum snapshot. NOT a live screener
+   and NOT for live entries/exits — honest limitation of ~15-min delayed data.
+   Does not use or change the weekly method. */
+let intradayData = null;
+async function renderIntraday(force) {
+  const inner = $("screenInner");
+  if (!inner) return;
+  if (!intradayData || force) {
+    inner.innerHTML = '<div class="scanhint"><span class="spinner"></span>Reading the delayed 15-minute charts…</div>';
+    try {
+      intradayData = await (await fetch("/api/intradayscan")).json();
+    } catch (e) {
+      renderState(inner, { icon: "📡", title: "Couldn't read the intraday snapshot", msg: "The data feed couldn't be reached. Your weekly method, prices and signals are unaffected.", retry: true }, () => renderIntraday(true));
+      return;
+    }
+  }
+  const rows = (intradayData && intradayData.results) || [];
+  const asOf = intradayData && intradayData.as_of;
+  // Honest data-age line: real timestamp + market-closed note using existing helpers.
+  let stamp = "";
+  if (asOf) {
+    const fresh = freshnessText(asOf);
+    const closed = !isTodayIST(asOf);
+    stamp = `<div class="itd-stamp">Data ${fresh}${closed ? " · market was closed — this is the last session's 15-min data" : ""}.</div>`;
+  }
+  const banner = `<div class="st-banner itd-banner">⏱ <b>Delayed intraday snapshot — illustrative only.</b>
+      This reads the <b>~15-minute DELAYED</b> chart (Yahoo, not licensed for live intraday). It is <b>NOT real-time, NOT a live screener, and NOT for live entries or exits</b> — it shows which names are leaning up on the delayed 15-minute trend, for context only. For your actual decisions use the weekly 9/21·21/50 method. Not investment advice.</div>`;
+  const head = `<div class="screen-count"><span class="sc-n"><b>${rows.length}</b> leaning up on the delayed 15-min trend</span>
+      <button class="sc-clear" id="itdRefresh">↻ Rescan</button></div>`;
+  inner.innerHTML = banner + stamp + head +
+    (rows.length ? `<div class="stocklist">${rows.map(intradayCard).join("")}</div>`
+      : stateBox({ icon: "🔍", title: "Nothing leaning up on the delayed 15-min trend", msg: "No names in the universe are trending up on the delayed 15-minute chart right now." }));
+  const rf = document.getElementById("itdRefresh");
+  if (rf) rf.addEventListener("click", () => renderIntraday(true));
+  const list = inner.querySelector(".stocklist"); if (list) wireStockCards(list);
+}
+function intradayCard(r) {
+  const setupCls = r.fresh ? "st-fresh" : "st-cont";
+  const setup = r.fresh ? "Fresh 15-min cross" : "15-min uptrend";
+  return `<div class="card st-card itd-card" data-sym="${r.symbol}">
+      <div class="st-top">
+        <div><div class="st-name">${r.name}</div><div class="st-sym">${r.symbol.replace(/\.(NS|BO)$/i, "")}</div></div>
+        <div class="st-price">₹${fmt(r.price)}</div>
+      </div>
+      <div class="st-tags"><span class="st-setup ${setupCls}">${setup}</span>${r.rsi != null ? `<span class="st-rsi">15m RSI ${r.rsi}</span>` : ""}</div>
+      <div class="subtitle">What the delayed 15-min chart shows</div>${r.reasons.map((x) => `<div class="psp-r">• ${x}</div>`).join("")}
+      <div class="psp-risk">⚠ ~15-MIN DELAYED — NOT real-time. Do NOT use for live intraday entries or exits. Illustrative context only.</div>
+      <div class="st-foot itd-foot">Delayed 15-min · illustrative only · tap for full chart &amp; weekly signal</div></div>`;
 }
 
 /* ---------- market widget (sidebar) ---------- */

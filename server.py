@@ -304,6 +304,59 @@ def _shortterm():
     return rows
 
 
+# ---- Intraday snapshot (delayed, ILLUSTRATIVE ONLY) -------------------------
+# A clearly-labelled DELAYED 15-minute momentum snapshot of the universe. This
+# is NOT a live intraday screener and NOT for live entries/exits: Yahoo data is
+# ~15-min delayed and unlicensed for live intraday, so this is context only.
+# Reuses _intraday (full-timestamp 15m bars) + engine.ema / engine._rsi_last.
+# It does NOT touch the weekly engine or any BUY/SELL signal.
+def _intraday_one(task):
+    sym, f = task
+    try:
+        d = _intraday(sym, "15m", "5d")
+    except Exception:  # noqa: BLE001 — a thin/failed name is skipped
+        return None
+    bars = d.get("bars") or []
+    closes = [b["close"] for b in bars if b.get("close") is not None]
+    if len(closes) < 40:   # need enough 15m history for a trustworthy read
+        return None
+    e9, e21 = engine.ema(closes, 9), engine.ema(closes, 21)
+    if e9[-1] is None or e21[-1] is None:
+        return None
+    rsi = engine._rsi_last(closes, 14)
+    price = closes[-1]
+    up = e9[-1] > e21[-1]
+    if not up:
+        return None  # only surface names leaning UP on the delayed 15m trend
+    fresh = False
+    for i in range(max(1, len(closes) - 8), len(closes)):
+        if None not in (e9[i], e21[i], e9[i - 1], e21[i - 1]) and e9[i - 1] <= e21[i - 1] and e9[i] > e21[i]:
+            fresh = True
+            break
+    reasons = ["15-minute 9-EMA is above the 21-EMA — the delayed intraday trend leans up."]
+    if fresh:
+        reasons.append("A fresh 15-minute 9/21 cross in the last ~2 hours of data.")
+    if rsi is not None:
+        reasons.append("15-minute RSI %d." % round(rsi))
+    name = (f.get("name") if f else None) or _news_company(sym)
+    return {"symbol": sym, "name": name, "price": round(price, 2),
+            "ema9": round(e9[-1], 2), "ema21": round(e21[-1], 2),
+            "rsi": round(rsi, 1) if rsi is not None else None,
+            "fresh": fresh, "as_of": d.get("as_of"), "reasons": reasons,
+            "spark": [round(c, 2) for c in closes[-16:]]}
+
+
+def _intraday_scan():
+    companies = quality._load().get("companies") or {}
+    tasks = [(s, f) for s, f in companies.items()]
+    tasks += [(s, None) for s in _EXTRA if s not in companies]
+    with ThreadPoolExecutor(max_workers=min(12, max(1, len(tasks)))) as ex:
+        rows = [r for r in ex.map(_intraday_one, tasks) if r is not None]
+    rows.sort(key=lambda x: (0 if x["fresh"] else 1, -(x["rsi"] or 0), x["symbol"]))
+    as_of = max((r["as_of"] for r in rows if r.get("as_of")), default=None)
+    return {"illustrative": True, "delayed": True, "as_of": as_of, "results": rows}
+
+
 class Handler(BaseHTTPRequestHandler):
     def _send(self, code, body, ctype="application/json"):
         b = body.encode("utf-8") if isinstance(body, str) else body
@@ -383,6 +436,9 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if u.path == "/api/shortterm":
                 self._send(200, json.dumps({"as_of_delayed": True, "results": _shortterm()}))
+                return
+            if u.path == "/api/intradayscan":
+                self._send(200, json.dumps(_intraday_scan()))
                 return
             if u.path == "/api/scan":
                 syms = [s.strip() for s in (qs.get("symbols") or [""])[0].split(",") if s.strip()]
