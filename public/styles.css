@@ -501,6 +501,7 @@ button{font-family:inherit}
 .sabuild .scf{display:flex;flex-direction:column;gap:6px}
 .sabuild .scf-l{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--faint);font-weight:700}
 .sabuild .seg button{padding:7px 14px}
+.head-actions{display:flex;gap:8px;align-items:center}
 
 /* ---------- Trading Journal (Phase 3) ---------- */
 .jform{display:flex;flex-wrap:wrap;gap:10px;align-items:center;background:var(--surface);border:1px solid var(--line);

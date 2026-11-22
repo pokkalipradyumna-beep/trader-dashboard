@@ -1220,6 +1220,7 @@ $("holdAdd").addEventListener("submit", async (e) => {
   });
 });
 $("refreshDash").addEventListener("click", () => withBtnLoading($("refreshDash"), "Refreshing…", loadHoldings));
+if ($("exportHoldings")) $("exportHoldings").addEventListener("click", exportHoldingsCSV);
 
 /* ---------- live auto-refresh (polls the ~15-min delayed feed) ---------- */
 let lastHoldings = null, pollTimer = null, lastTickAt = 0;
@@ -1708,7 +1709,7 @@ function drawScreeners() {
     (!f.v || x.valuation === f.v) &&
     (!f.conf || (x.confluence && x.confluence.bull >= f.conf)));
   const active = !!(f.cat || f.q || f.v || f.conf);
-  const count = `<div class="screen-count"><span class="sc-n"><b>${rows.length}</b> of ${screenData.length} stocks match</span>${active ? '<button class="sc-clear" id="scClear">✕ Clear filters</button>' : ""}</div>`;
+  const count = `<div class="screen-count"><span class="sc-n"><b>${rows.length}</b> of ${screenData.length} stocks match</span>${active ? '<button class="sc-clear" id="scClear">✕ Clear filters</button>' : ""}<button class="sc-clear" id="scExport">↓ Export CSV</button></div>`;
   body.innerHTML = filters + count +
     (rows.length ? `<div class="stocklist">${rows.map(cardHTML).join("")}</div>`
       : stateBox({ icon: "🔍", title: "No matches", msg: "Loosen the filters to see more stocks." }));
@@ -1716,6 +1717,8 @@ function drawScreeners() {
     b.addEventListener("click", () => { const k = b.dataset.sk; f[k] = (k === "conf") ? +b.dataset.sv : b.dataset.sv; drawScreeners(); }));
   const clr = document.getElementById("scClear");
   if (clr) clr.addEventListener("click", () => { screenFilters = { cat: "", q: "", v: "", conf: 0 }; drawScreeners(); });
+  const exp = document.getElementById("scExport");
+  if (exp) exp.addEventListener("click", exportScreenerCSV);
   const list = body.querySelector(".stocklist"); if (list) wireStockCards(list);
 }
 
@@ -1981,6 +1984,7 @@ $("journalBtn").addEventListener("click", () => {
   journalPrefill = { t: currentSym, n: (d.quality && d.quality.name) || currentSym.replace(".NS", ""), price: d.price, snapshot: journalSnapshot(d) };
   showPage("journal");
 });
+if ($("exportJournal")) $("exportJournal").addEventListener("click", exportJournalCSV);
 
 /* ---------- Compare 2–5 stocks (reuses /api/scan — one call, rich rows) ---------- */
 function getCompare() { try { return JSON.parse(localStorage.getItem("compare") || "[]"); } catch (e) { return []; } }
@@ -2035,7 +2039,58 @@ function renderCompare(rows) {
   body.querySelectorAll("[data-open]").forEach((b) => b.addEventListener("click", () => loadStock(b.dataset.open)));
 }
 
+/* ---------- P6: CSV export (holdings, journal, screener) ---------- */
+function toCSV(headers, rows) {
+  const esc = (v) => { v = v == null ? "" : String(v); return /[",\n\r]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+  return "﻿" + [headers.map(esc).join(","), ...rows.map((r) => r.map(esc).join(","))].join("\r\n"); // BOM so Excel reads UTF-8
+}
+function downloadText(name, text, type) {
+  const blob = new Blob([text], { type: type || "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+const _today = () => new Date().toISOString().slice(0, 10);
+async function exportHoldingsCSV() {
+  const d = (lastHoldings && (lastHoldings.holdings || []).length) ? lastHoldings : await computeHoldings();
+  const H = d.holdings || [];
+  if (!H.length) { showToast("No holdings to export", "err"); return; }
+  const headers = ["Symbol", "Name", "Qty", "Buy price", "Current price", "Value", "P/L (₹)", "P/L (%)", "Exit signal"];
+  const rows = H.map((h) => [h.symbol, h.name, h.qty, h.buy_price, h.price, h.value, h.pl_abs, h.pl_pct, h.code]);
+  downloadText("holdings-" + _today() + ".csv", toCSV(headers, rows));
+  showToast("Holdings exported (" + H.length + ")", "ok");
+}
+async function exportJournalCSV() {
+  const je = await jAll();
+  if (!je.length) { showToast("No journal entries to export", "err"); return; }
+  je.sort((a, b) => (b.id || 0) - (a.id || 0));
+  const headers = ["Ticker", "Name", "Qty", "Status", "Entry date", "Entry price", "Reason", "Exit date", "Exit price", "Exit reason", "Realised (₹)", "Realised (%)", "Result", "Signal at entry", "EMA9", "EMA21", "EMA50", "Confluence"];
+  const rows = je.map((e) => { const s = e.entry.snapshot || {}, x = e.exit || {}, r = e.realised || {}; return [e.ticker, e.name, e.qty, e.status, e.entry.date, e.entry.price, e.entry.reason, x.date || "", x.price != null ? x.price : "", x.reason || "", r.pl_abs != null ? r.pl_abs : "", r.pl_pct != null ? r.pl_pct : "", e.status === "closed" ? (r.pl_pct >= 0 ? "WIN" : "LOSS") : "", s.verdict || "", s.ema9 != null ? s.ema9 : "", s.ema21 != null ? s.ema21 : "", s.ema50 != null ? s.ema50 : "", s.confluence || ""]; });
+  downloadText("journal-" + _today() + ".csv", toCSV(headers, rows));
+  showToast("Journal exported (" + je.length + ")", "ok");
+}
+function exportScreenerCSV() {
+  const f = screenFilters;
+  const rows0 = (screenData || []).filter((x) => (!f.cat || x.category === f.cat) && (!f.q || x.quality === f.q) && (!f.v || x.valuation === f.v) && (!f.conf || (x.confluence && x.confluence.bull >= f.conf)));
+  if (!rows0.length) { showToast("No rows to export", "err"); return; }
+  const headers = ["Symbol", "Name", "Price", "1-week %", "Signal", "Quality", "Valuation", "Confluence", "Upside %"];
+  const rows = rows0.map((x) => [x.symbol, x.name, x.price, x.chg1w, x.category, x.quality || "", x.valuation || "", x.confluence ? x.confluence.bull + "/" + x.confluence.total + " " + x.confluence.side : "", x.upside != null ? x.upside : ""]);
+  downloadText("screener-" + _today() + ".csv", toCSV(headers, rows));
+  showToast("Screener exported (" + rows0.length + ")", "ok");
+}
+
 /* ---------- boot ---------- */
+// Persistence health: everything you save (holdings, watchlist, alerts, settings,
+// cash, compare) lives in this browser's local storage; journal + snapshots in
+// IndexedDB. Both survive refresh, closing the tab and reopening. If the browser
+// is BLOCKING storage (private window, or site data disabled), saves fail silently
+// — so warn once, and point to Export backup, instead of losing data quietly.
+(function storageHealth() {
+  let ok = false;
+  try { localStorage.setItem("__probe__", "1"); ok = localStorage.getItem("__probe__") === "1"; localStorage.removeItem("__probe__"); } catch (e) { ok = false; }
+  if (!ok) setTimeout(() => showToast("⚠ This browser is blocking storage — your holdings, watchlist & alerts won't be saved. Use a normal (non-private) window.", "err"), 1800);
+})();
 updateBellDot();
 updateClock();
 setInterval(updateClock, 15000);

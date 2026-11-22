@@ -128,7 +128,7 @@
         <section id="page-dashboard" class="page">
           <div class="pagehead">
             <div><h1>My Dashboard</h1><p class="sub">Your holdings — and when to exit. <span id="liveDash" class="liveago"></span></p></div>
-            <button id="refreshDash" class="btn ghost">↻ Refresh</button>
+            <div class="head-actions"><button id="exportHoldings" class="btn ghost sm">↓ CSV</button><button id="refreshDash" class="btn ghost">↻ Refresh</button></div>
           </div>
           <div id="dashAlert"></div>
           <div id="dashSummary" class="summary"></div>
@@ -179,6 +179,7 @@
         <section id="page-journal" class="page">
           <div class="pagehead">
             <div><h1>Trading Journal</h1><p class="sub">Record why you bought, the signal at the time, and what you learned on exit.</p></div>
+            <button id="exportJournal" class="btn ghost sm">↓ Export CSV</button>
           </div>
           <div id="journalBody"></div>
         </section>
