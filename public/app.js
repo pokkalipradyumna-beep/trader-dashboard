@@ -550,7 +550,22 @@ function explainSignal(d) {
     : v.action === "SELL" ? "a fresh exit trigger (9/21 death cross)"
     : v.action === "HOLD" ? "the uptrend is intact, but there's no new entry trigger"
     : "there's no buy trigger yet (9/21 below)";
-  return `<div class="explain"><div class="ex-text">${parts.join(" ")}</div><div class="ex-net"><b>In short:</b> ${net} — ${why}.</div></div>`;
+  return `<div class="explain"><div class="ex-text">${parts.join(" ")}</div><div class="ex-net"><b>In short:</b> ${net} — ${why}.</div><div class="ex-news" id="exNews" hidden></div></div>`;
+}
+// Fills the explanation's news-awareness line from the SAME /api/news data the
+// News section uses — deterministic (no LLM): a count + the latest headline, so
+// the explanation reflects the latest available news and auto-updates per stock.
+function fillExplainNews(data) {
+  const el = document.getElementById("exNews");
+  if (!el) return;
+  const items = (data && data.items) || [];
+  if (!items.length) { el.hidden = true; return; }
+  const top = items[0];
+  const when = _newsAgo(top.date);
+  const meta = [top.source, when].filter(Boolean).join(", ");
+  el.innerHTML = `📰 <b>${items.length} recent ${items.length === 1 ? "headline" : "headlines"}</b> — latest: “${_esc(top.title)}”${meta ? " (" + _esc(meta) + ")" : ""}. `
+    + `<span class="ex-news-note">News is context, not a signal — your BUY/SELL call stays on the weekly 9/21·21/50 method. See the News section below.</span>`;
+  el.hidden = false;
 }
 function _trendFrom(closes) {
   if (!closes || closes.length < 22) return null;
@@ -640,6 +655,7 @@ async function loadNews(sym) {
   let data = null;
   try { data = await (await fetch("/api/news?symbol=" + encodeURIComponent(sym))).json(); }
   catch (e) { host.innerHTML = `<div class="block"><div class="note">News is unavailable right now. The feed couldn't be reached — this doesn't affect prices or signals.</div></div>`; return; }
+  fillExplainNews(data); // surface the latest headline in the explanation (deterministic)
   const items = (data && data.items) || [];
   if (!items.length) {
     host.innerHTML = `<div class="block"><div class="note">${_esc((data && data.note) || "No recent news found for this company.")}</div></div>`;

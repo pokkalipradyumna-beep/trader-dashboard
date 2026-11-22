@@ -228,6 +228,9 @@ button{font-family:inherit}
 .explain .ex-text b{color:#fff;font-weight:700}
 .explain .ex-net{margin-top:10px;padding-top:10px;border-top:1px solid var(--line);font-size:13.5px;color:var(--dim)}
 .explain .ex-net b{color:var(--txt)}
+.explain .ex-news{margin-top:10px;padding-top:10px;border-top:1px dashed var(--line);font-size:12.5px;line-height:1.55;color:var(--dim)}
+.explain .ex-news b{color:var(--txt)}
+.explain .ex-news .ex-news-note{color:var(--faint)}
 .psp{display:flex;flex-direction:column}
 .psp.delayed{border-color:rgba(245,158,11,.3)}
 .psp-h{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:8px}
