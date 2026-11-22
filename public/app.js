@@ -1478,6 +1478,24 @@ async function renderReports(quiet) {
   const drawdown = (peak && latest != null && peak > 0) ? (latest - peak) / peak * 100 : null;
   const perfSince = (days) => { if (snaps.length < 2) return null; const t = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10); let base = null; for (const s of snaps) { if (s.date <= t) base = s; } if (!base) base = snaps[0]; return base.value > 0 ? (latest - base.value) / base.value * 100 : null; };
   const perf1w = perfSince(7), perf1m = perfSince(30), perfAll = (snaps.length >= 2 && snaps[0].value > 0) ? (latest - snaps[0].value) / snaps[0].value * 100 : null;
+  // ---- Phase 5: benchmark vs NIFTY 50, best/worst, sector performance, monthly returns ----
+  const nh = await niftyHistory();
+  const periods = [["1 week", 7], ["1 month", 30], ["All-time", null]];
+  const benchRows = (snaps.length >= 2 && nh.latest) ? periods.map(([label, days]) => {
+    let base; if (days == null) base = snaps[0]; else { const t = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10); base = null; for (const s of snaps) { if (s.date <= t) base = s; } if (!base) base = snaps[0]; }
+    if (!base || base.value <= 0) return null;
+    const port = (latest - base.value) / base.value * 100;
+    const nb = niftyCloseOn(nh, base.date);
+    const nfty = (nb && nb > 0) ? (nh.latest - nb) / nb * 100 : null;
+    return { label, port, nfty, alpha: nfty != null ? port - nfty : null };
+  }).filter(Boolean) : [];
+  const byPl = H.filter((h) => h.pl_pct != null).slice().sort((a, b) => b.pl_pct - a.pl_pct);
+  const best = byPl.slice(0, 3), worst = byPl.slice(-3).reverse().filter((h) => !best.includes(h));
+  const secPerf = {}; H.filter((h) => h.pl_pct != null).forEach((h) => { const s = sectorOf(h.symbol); const inv = (h.buy_price || 0) * h.qty; (secPerf[s] = secPerf[s] || { inv: 0, pl: 0 }), secPerf[s].inv += inv, secPerf[s].pl += (h.pl_abs || 0); });
+  const secPerfRows = Object.entries(secPerf).map(([s, o]) => ({ s, pct: o.inv ? o.pl / o.inv * 100 : 0 })).sort((a, b) => b.pct - a.pct);
+  const byMonth = {}; snaps.forEach((s) => { byMonth[s.date.slice(0, 7)] = s.value; });
+  const months = Object.keys(byMonth).sort(); const monthRows = [];
+  for (let i = 1; i < months.length; i++) { const p = byMonth[months[i - 1]], c = byMonth[months[i]]; if (p > 0) monthRows.push({ m: months[i], pct: (c - p) / p * 100 }); }
   const secMap = {}; H.filter((h) => h.value).forEach((h) => { const s = sectorOf(h.symbol); secMap[s] = (secMap[s] || 0) + h.value; });
   const secRows = Object.entries(secMap).sort((a, b) => b[1] - a[1]);
   const pcls = (x) => x == null ? "" : (x >= 0 ? "up" : "down");
@@ -1525,15 +1543,36 @@ async function renderReports(quiet) {
        <div class="row"><span>Drawdown from peak</span><span class="r-v ${pcls(drawdown)}">${pfmt(drawdown)}</span></div>
        <div class="note">${snaps.length} daily snapshot${snaps.length === 1 ? "" : "s"} since ${snaps[0].date}.</div>`
     : `<div class="note">Building history — one snapshot is saved each day you open the app. Come back tomorrow to see your portfolio trend, returns and drawdown.</div>`;
+  // Phase 5: benchmark vs NIFTY 50
+  const benchCard = benchRows.length
+    ? `<div class="bench-head"><span>Period</span><span>You</span><span>NIFTY</span><span>+/−</span></div>` +
+      benchRows.map((b) => `<div class="bench-row"><span class="bench-l">${b.label}</span><span class="r-v ${pcls(b.port)}">${pfmt(b.port)}</span><span class="r-v ${pcls(b.nfty)}">${pfmt(b.nfty)}</span><span class="r-v ${pcls(b.alpha)}">${pfmt(b.alpha)}</span></div>`).join("") +
+      `<div class="note">+/− is your return minus NIFTY 50 over the same window (delayed data).</div>`
+    : `<div class="note">Needs a couple of days of portfolio history to compare against NIFTY 50. It builds automatically each day you open the app.</div>`;
+  const plMover = (h) => `<div class="mover-row"><span class="mv-n">${esc(h.name)}</span><span class="mv-c ${h.pl_pct >= 0 ? "up" : "down"}">${h.pl_pct >= 0 ? "+" : ""}${h.pl_pct}%</span></div>`;
+  const bestWorst = (best.length || worst.length)
+    ? `<div class="subtitle" style="margin-top:0">Best</div>${best.map(plMover).join("") || '<div class="note">—</div>'}
+       <div class="subtitle">Worst</div>${worst.map(plMover).join("") || '<div class="note">—</div>'}`
+    : '<div class="note">No holdings with a buy price yet.</div>';
+  const secPerfHtml = secPerfRows.length
+    ? secPerfRows.map((r) => `<div class="mover-row"><span class="mv-n">${r.s}</span><span class="mv-c ${r.pct >= 0 ? "up" : "down"}">${r.pct >= 0 ? "+" : ""}${Math.round(r.pct * 10) / 10}%</span></div>`).join("")
+    : '<div class="note">No holdings yet.</div>';
+  const monthlyCard = monthRows.length
+    ? monthRows.slice(-6).reverse().map((r) => `<div class="mover-row"><span class="mv-n">${r.m}</span><span class="mv-c ${r.pct >= 0 ? "up" : "down"}">${r.pct >= 0 ? "+" : ""}${Math.round(r.pct * 10) / 10}%</span></div>`).join("")
+    : "";
 
   body.innerHTML = stats + cashCtl + `<div class="report-grid">
+    <div class="report-card"><h3>Performance vs NIFTY 50</h3>${benchCard}</div>
     <div class="report-card"><h3>Portfolio over time</h3>${histCard}</div>
+    ${monthlyCard ? `<div class="report-card"><h3>Monthly returns</h3>${monthlyCard}</div>` : ""}
+    <div class="report-card"><h3>Best &amp; worst holdings</h3>${bestWorst}</div>
+    <div class="report-card"><h3>Sector performance · your holdings</h3>${secPerfHtml}</div>
     <div class="report-card"><h3>Allocation by stock</h3>${allocStock}</div>
     <div class="report-card"><h3>Allocation by sector</h3>${allocSector}</div>
     <div class="report-card"><h3>Concentration &amp; diversification</h3>${riskCard}</div>
     <div class="report-card"><h3>Signal distribution · universe</h3>${dist}</div>
-    <div class="report-card"><h3>Top gainers · 1 week</h3>${gainers}</div>
-    <div class="report-card"><h3>Top losers · 1 week</h3>${losers}</div></div>`;
+    <div class="report-card"><h3>Top gainers · universe</h3>${gainers}</div>
+    <div class="report-card"><h3>Top losers · universe</h3>${losers}</div></div>`;
   const cashEl = document.getElementById("repCash");
   if (cashEl) cashEl.addEventListener("change", () => { const v = parseFloat(cashEl.value); setCash(isFinite(v) && v >= 0 ? v : 0); renderReports(); });
   setLive();
@@ -1690,6 +1729,22 @@ const SECTORS = {
   "SJVN.NS": "Power & utilities", "NHPC.NS": "Power & utilities", "SUZLON.NS": "Power & utilities",
 };
 function sectorOf(sym) { return SECTORS[(sym || "").toUpperCase()] || "Other"; }
+/* ---------- Phase 5: NIFTY 50 benchmark history (cached ~5 min) ---------- */
+let _niftyHist = null;
+async function niftyHistory() {
+  if (_niftyHist && Date.now() - _niftyHist.at < 300000) return _niftyHist;
+  try {
+    const d = await (await fetch("/api/stock?symbol=" + encodeURIComponent("^NSEI") + "&tf=D")).json();
+    const map = {}; (d.candles || []).forEach((c) => { if (c.close != null) map[c.time] = c.close; });
+    const dates = Object.keys(map).sort();
+    _niftyHist = { at: Date.now(), map, dates, latest: dates.length ? map[dates[dates.length - 1]] : null };
+  } catch (e) { if (!_niftyHist) _niftyHist = { at: Date.now(), map: {}, dates: [], latest: null }; }
+  return _niftyHist;
+}
+function niftyCloseOn(hist, date) { // nearest NIFTY close on or before `date`
+  let best = null; for (const d of hist.dates) { if (d <= date) best = hist.map[d]; else break; }
+  return best != null ? best : (hist.dates.length ? hist.map[hist.dates[0]] : null);
+}
 function esc(s) { return (s || "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
 // Snapshot the engine's signal at the moment of entry (reuses existing data — no recompute).
 function journalSnapshot(d) {
@@ -1740,6 +1795,25 @@ function renderJournal(entries) {
   const wins = closed.filter((e) => e.realised && e.realised.pl_pct >= 0).length;
   const realisedPl = closed.reduce((s, e) => s + ((e.realised && e.realised.pl_abs) || 0), 0);
   const winRate = closed.length ? Math.round(wins / closed.length * 100) : null;
+  // Phase 5: trade analysis — avg win / avg loss / profit factor / best / worst
+  const winsArr = closed.filter((e) => e.realised && e.realised.pl_pct >= 0);
+  const lossArr = closed.filter((e) => e.realised && e.realised.pl_pct < 0);
+  const avgWin = winsArr.length ? winsArr.reduce((s, e) => s + e.realised.pl_pct, 0) / winsArr.length : null;
+  const avgLoss = lossArr.length ? lossArr.reduce((s, e) => s + e.realised.pl_pct, 0) / lossArr.length : null;
+  const grossWin = winsArr.reduce((s, e) => s + (e.realised.pl_abs || 0), 0);
+  const grossLoss = Math.abs(lossArr.reduce((s, e) => s + (e.realised.pl_abs || 0), 0));
+  const profitFactor = grossLoss ? grossWin / grossLoss : (grossWin ? Infinity : null);
+  const byPct = closed.filter((e) => e.realised).slice().sort((a, b) => b.realised.pl_pct - a.realised.pl_pct);
+  const bestT = byPct[0], worstT = byPct.length > 1 ? byPct[byPct.length - 1] : null;
+  const p1 = (x) => x == null ? "—" : (x >= 0 ? "+" : "") + (Math.round(x * 10) / 10) + "%";
+  const anaRow = (l, v, cls) => `<div class="ana-i"><div class="ana-l">${l}</div><div class="ana-v ${cls || ""}">${v}</div></div>`;
+  const analysis = closed.length ? `<div class="ana-strip">
+      ${anaRow("Avg win", p1(avgWin), "up")}
+      ${anaRow("Avg loss", p1(avgLoss), "down")}
+      ${anaRow("Profit factor", profitFactor == null ? "—" : (profitFactor === Infinity ? "∞" : Math.round(profitFactor * 100) / 100), profitFactor != null && profitFactor >= 1 ? "up" : "down")}
+      ${anaRow("Best trade", bestT ? esc(bestT.name) + " " + p1(bestT.realised.pl_pct) : "—", "up")}
+      ${anaRow("Worst trade", worstT ? esc(worstT.name) + " " + p1(worstT.realised.pl_pct) : "—", "down")}
+    </div>` : "";
   const stat = (cls, ic, v, l) => `<div class="statcard ${cls}"><div class="st-ic">${statIcon(ic)}</div><div class="st-t"><div class="st-v">${v}</div><div class="st-l">${l}</div></div></div>`;
   const pf = journalPrefill || {};
   const today = new Date().toISOString().slice(0, 10);
@@ -1748,7 +1822,7 @@ function renderJournal(entries) {
       ${stat("amber", "clock", open.length, "Open")}
       ${stat(winRate == null ? "blue" : (winRate >= 50 ? "green" : "red"), "star", winRate == null ? "—" : winRate + "%", "Win rate")}
       ${stat(realisedPl >= 0 ? "green" : "red", "up", (realisedPl >= 0 ? "+" : "") + "₹" + fmt(realisedPl), "Realised P/L")}
-    </div>
+    </div>${analysis}
     <form id="jForm" class="jform">
       <div class="acwrap jgrow"><input id="jSym" class="al-in" placeholder="Stock — name or symbol" autocomplete="off" value="${pf.t ? esc(pf.t) : ""}"><div id="jDrop" class="dropdown hidden"></div></div>
       <input id="jQty" class="al-in jqty" type="number" min="0" step="any" placeholder="Qty">
