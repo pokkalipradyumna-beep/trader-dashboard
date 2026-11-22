@@ -1317,54 +1317,103 @@ document.addEventListener("keydown", (e) => {
 function getAlerts() { try { return JSON.parse(localStorage.getItem("alerts") || "[]"); } catch (e) { return []; } }
 function saveAlerts(a) { try { localStorage.setItem("alerts", JSON.stringify(a)); } catch (e) {} }
 function updateBellDot() { const d = $("bellDot"); if (d) d.classList.toggle("hidden", !getAlerts().some((a) => a.fired)); }
-let alOp = "above";
+let alOp = "above", alType = "price";
+function alCondText(a) {
+  const t = a.t.replace(".NS", "");
+  const k = a.kind || "price";
+  if (k === "pct") return `${t} moves <b>±${a.pct}%</b> from the previous close`;
+  if (k === "signal") return `${t} — <b>fresh weekly signal</b> (9/21 buy or sell cross)`;
+  return `${t} <b>${a.op}</b> ₹${fmt(a.price)}`;
+}
 function alertRow(a) {
   const st = a.fired ? '<span class="al-st fired">✓ Triggered</span>' : '<span class="al-st armed">● Armed</span>';
+  const tag = { price: "Price", pct: "% Move", signal: "Signal" }[a.kind || "price"];
   return `<div class="alert-row ${a.fired ? "fired" : ""}">
-    <div class="al-main"><div class="al-name">${a.n}</div><div class="al-cond">${a.t.replace(".NS", "")} <b>${a.op}</b> ₹${fmt(a.price)}</div></div>
+    <div class="al-main"><div class="al-name">${a.n} <span class="al-tag">${tag}</span></div><div class="al-cond">${alCondText(a)}</div></div>
     ${st}<button class="al-remove iconbtn" data-id="${a.id}" title="Remove" aria-label="Remove alert">✕</button></div>`;
 }
 function renderAlerts() {
   const body = $("alertsBody");
   if (!body) return;
   const alerts = getAlerts();
+  const typeSeg = `<div class="seg altype" id="alType">
+      <button data-k="price" class="${alType === "price" ? "active" : ""}">Price</button>
+      <button data-k="pct" class="${alType === "pct" ? "active" : ""}">% Move</button>
+      <button data-k="signal" class="${alType === "signal" ? "active" : ""}">Signal</button></div>`;
+  const inputs = alType === "price"
+    ? `<div class="seg" id="alOp"><button data-op="above" class="${alOp === "above" ? "active" : ""}">Above</button><button data-op="below" class="${alOp === "below" ? "active" : ""}">Below</button></div>
+       <input id="alPrice" class="al-in al-price" type="number" min="0" step="any" placeholder="Target ₹">`
+    : alType === "pct"
+    ? `<input id="alPct" class="al-in al-price" type="number" min="0" step="any" placeholder="± % move">`
+    : `<span class="al-siginfo">Fires on a fresh weekly 9/21 buy or sell cross.</span>`;
   body.innerHTML = `<div class="alert-add">
       <div class="acwrap"><input id="alSym" class="al-in" placeholder="Stock — name or symbol" autocomplete="off"><div id="alDrop" class="dropdown hidden"></div></div>
-      <div class="seg" id="alOp"><button data-op="above" class="${alOp === "above" ? "active" : ""}">Above</button><button data-op="below" class="${alOp === "below" ? "active" : ""}">Below</button></div>
-      <input id="alPrice" class="al-in al-price" type="number" min="0" step="any" placeholder="Target ₹">
+      ${typeSeg}${inputs}
       <button id="alAdd" class="btn">Add alert</button></div>
+    <div class="al-note">⚑ Alerts use delayed (~15 min) data and fire once — they're reminders, not real-time notifications.</div>
     ${alerts.length ? `<div class="alertlist">${alerts.map(alertRow).join("")}</div>`
-      : stateBox({ icon: "🔔", title: "No alerts yet", msg: "Add a price alert above — it fires when the delayed quote crosses your target." })}`;
+      : stateBox({ icon: "🔔", title: "No alerts yet", msg: "Add a price, % move, or weekly-signal alert above." })}`;
   attachAutocomplete($("alSym"), $("alDrop"), (s) => { $("alSym").value = s.t; $("alSym").dataset.name = s.n; });
-  $("alOp").querySelectorAll("button").forEach((b) =>
-    b.addEventListener("click", () => { alOp = b.dataset.op; $("alOp").querySelectorAll("button").forEach((x) => x.classList.toggle("active", x === b)); }));
+  $("alType").querySelectorAll("button").forEach((b) =>
+    b.addEventListener("click", () => { alType = b.dataset.k; renderAlerts(); }));
+  const opEl = document.getElementById("alOp");
+  if (opEl) opEl.querySelectorAll("button").forEach((b) =>
+    b.addEventListener("click", () => { alOp = b.dataset.op; opEl.querySelectorAll("button").forEach((x) => x.classList.toggle("active", x === b)); }));
   $("alAdd").addEventListener("click", () => {
-    let s = $("alSym").value.trim().toUpperCase(); if (!s) return; if (!s.includes(".")) s += ".NS";
-    const p = parseFloat($("alPrice").value);
-    if (!(p > 0)) { showToast("Enter a target price", "err"); return; }
+    let s = $("alSym").value.trim().toUpperCase(); if (!s) { showToast("Pick a stock", "err"); return; }
+    if (!s.includes(".")) s += ".NS";
+    const n = $("alSym").dataset.name || s.replace(".NS", "");
     const a = getAlerts();
-    a.push({ id: Date.now(), t: s, n: $("alSym").dataset.name || s.replace(".NS", ""), op: alOp, price: p, fired: false });
+    if (alType === "price") {
+      const p = parseFloat($("alPrice").value); if (!(p > 0)) { showToast("Enter a target price", "err"); return; }
+      a.push({ id: Date.now(), t: s, n, kind: "price", op: alOp, price: p, fired: false });
+    } else if (alType === "pct") {
+      const p = parseFloat($("alPct").value); if (!(p > 0)) { showToast("Enter a % move", "err"); return; }
+      a.push({ id: Date.now(), t: s, n, kind: "pct", pct: p, fired: false });
+    } else {
+      a.push({ id: Date.now(), t: s, n, kind: "signal", lastCat: null, fired: false });
+    }
     saveAlerts(a); showToast("Alert added", "ok"); renderAlerts();
   });
   body.querySelectorAll(".al-remove").forEach((b) =>
     b.addEventListener("click", () => { saveAlerts(getAlerts().filter((x) => String(x.id) !== b.dataset.id)); renderAlerts(); updateBellDot(); }));
 }
 async function checkAlerts() {
-  const armed = getAlerts().filter((a) => !a.fired);
-  if (!armed.length) return;
-  const syms = [...new Set(armed.map((a) => a.t))];
+  const active = getAlerts().filter((a) => !a.fired);
+  if (!active.length) return;
+  const quoteSyms = [...new Set(active.filter((a) => (a.kind || "price") !== "signal").map((a) => a.t))];
+  const signalSyms = [...new Set(active.filter((a) => a.kind === "signal").map((a) => a.t))];
   try {
-    const d = await (await fetch("/api/quote?symbols=" + encodeURIComponent(syms.join(",")))).json();
-    const q = d.quotes || {};
+    let q = {}, cats = {};
+    if (quoteSyms.length) { const d = await (await fetch("/api/quote?symbols=" + encodeURIComponent(quoteSyms.join(",")))).json(); q = d.quotes || {}; }
+    // Signal alerts reuse the scanner's category (STRONG BUY/BUY = fresh 9/21 bull cross; SELL = fresh death cross) — no new engine call.
+    if (signalSyms.length) { const d = await (await fetch("/api/scan?symbols=" + encodeURIComponent(signalSyms.join(",")))).json(); (d.results || []).forEach((r) => { cats[r.symbol] = r.category; }); }
     let changed = false;
     const all = getAlerts();
     all.forEach((a) => {
       if (a.fired) return;
-      const price = (q[a.t] || {}).price;
-      if (price == null) return;
-      if ((a.op === "above" && price >= a.price) || (a.op === "below" && price <= a.price)) {
-        a.fired = true; changed = true;
-        showToast(`🔔 ${a.n} is ${a.op} ₹${fmt(a.price)} — now ₹${fmt(price)}`, "ok");
+      const kind = a.kind || "price";
+      if (kind === "price") {
+        const price = (q[a.t] || {}).price; if (price == null) return;
+        if ((a.op === "above" && price >= a.price) || (a.op === "below" && price <= a.price)) {
+          a.fired = true; changed = true; showToast(`🔔 ${a.n} is ${a.op} ₹${fmt(a.price)} — now ₹${fmt(price)} · delayed`, "ok");
+        }
+      } else if (kind === "pct") {
+        const qq = q[a.t] || {}; if (qq.price == null || !qq.prev_close) return;
+        const chg = (qq.price - qq.prev_close) / qq.prev_close * 100;
+        if (Math.abs(chg) >= a.pct) {
+          a.fired = true; changed = true; showToast(`🔔 ${a.n} moved ${chg >= 0 ? "+" : ""}${chg.toFixed(1)}% (±${a.pct}%) · delayed`, "ok");
+        }
+      } else if (kind === "signal") {
+        const cat = cats[a.t]; if (cat == null) return;
+        if (a.lastCat == null) { a.lastCat = cat; changed = true; return; } // set baseline on first check, don't fire
+        if (cat !== a.lastCat) {
+          const buy = cat === "STRONG BUY" || cat === "BUY", wasBuy = a.lastCat === "STRONG BUY" || a.lastCat === "BUY";
+          const sell = cat === "SELL", wasSell = a.lastCat === "SELL";
+          if (buy && !wasBuy) { a.fired = true; changed = true; showToast(`🔔 ${a.n}: fresh weekly BUY signal (${cat}) · delayed`, "ok"); }
+          else if (sell && !wasSell) { a.fired = true; changed = true; showToast(`🔔 ${a.n}: fresh weekly SELL signal · delayed`, "ok"); }
+          else { a.lastCat = cat; changed = true; }
+        }
       }
     });
     if (changed) { saveAlerts(all); updateBellDot(); if (document.getElementById("page-alerts").classList.contains("active")) renderAlerts(); }
