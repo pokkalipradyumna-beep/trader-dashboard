@@ -489,6 +489,44 @@ button{font-family:inherit}
 .altype button.active{background:var(--accent);color:#fff}
 .al-siginfo{font-size:12px;color:var(--faint);align-self:center;max-width:220px;line-height:1.4}
 .al-note{font-size:11.5px;color:var(--warn);margin:12px 0 16px;display:flex;align-items:center;gap:6px}
+
+/* ---------- Trading Journal (Phase 3) ---------- */
+.jform{display:flex;flex-wrap:wrap;gap:10px;align-items:center;background:var(--surface);border:1px solid var(--line);
+  border-radius:var(--radius);padding:14px 16px;margin-bottom:10px}
+.jform .al-in{background:var(--surface2);border:1px solid var(--line);color:var(--txt);font-family:inherit;font-size:13.5px;
+  padding:9px 12px;border-radius:9px;outline:none}
+.jform .al-in:focus{border-color:rgba(var(--accent-rgb),.55)}
+.jform .jqty{width:110px} .jform .jgrow{flex:1;min-width:150px}
+.j-note{font-size:11.5px;color:var(--faint);margin:0 0 18px;line-height:1.5}
+.jsec{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--faint);font-weight:700;margin:18px 0 10px;
+  display:flex;align-items:center;gap:8px}
+.jsec span{background:var(--surface2);border:1px solid var(--line);border-radius:6px;padding:1px 8px;font-size:11px;color:var(--dim)}
+.jlist{display:flex;flex-direction:column;gap:12px}
+.jcard{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:15px 17px}
+.jcard.closed{opacity:.92}
+.jc-top{display:flex;align-items:center;gap:13px}
+.jc-id{flex:1;min-width:0}
+.jc-name{font-weight:700;font-size:15px;display:flex;align-items:center;gap:8px}
+.jc-tkr{font-size:12px;color:var(--dim);margin-top:2px}
+.jc-stat{text-align:right;white-space:nowrap}
+.j-open{font-size:12px;font-weight:700;color:var(--warn)}
+.j-pl{font-size:15px;font-weight:800} .j-pl.up{color:#4ade80} .j-pl.down{color:#f87171}
+.j-wl{font-size:10px;font-weight:800;padding:2px 7px;border-radius:5px;letter-spacing:.03em}
+.j-wl.win{color:#4ade80;background:rgba(16,185,129,.14);border:1px solid rgba(16,185,129,.3)}
+.j-wl.loss{color:#f87171;background:rgba(240,68,68,.14);border:1px solid rgba(240,68,68,.3)}
+.jc-snap{display:flex;flex-wrap:wrap;gap:7px;margin-top:11px}
+.jc-chip{font-size:11px;color:var(--dim);background:var(--surface2);border:1px solid var(--line);border-radius:6px;padding:3px 9px}
+.jc-chip b{color:var(--txt)}
+.jc-reason,.jc-exit{font-size:13px;margin-top:10px;color:var(--txt)}
+.jc-reason b,.jc-exit b{color:var(--dim);font-weight:600}
+.jc-notes{font-size:12.5px;color:var(--dim);margin-top:6px;font-style:italic}
+.jc-foot{display:flex;flex-wrap:wrap;gap:8px;margin-top:13px;padding-top:12px;border-top:1px solid var(--line)}
+.jc-foot .j-del{margin-left:auto;color:var(--faint)}
+.jc-foot .j-del:hover{color:var(--sell);border-color:var(--sell)}
+.jclose{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:12px;padding-top:12px;border-top:1px solid var(--line)}
+.jclose .al-in{background:var(--surface2);border:1px solid var(--line);color:var(--txt);font-family:inherit;font-size:13px;padding:8px 11px;border-radius:8px;outline:none}
+.jclose .jqty{width:120px} .jclose .jgrow{flex:1;min-width:140px}
+@media(max-width:560px){ .jform .jqty,.jclose .jqty{width:100%} .jform .jgrow,.jclose .jgrow{flex:1 1 100%} .jc-foot{gap:6px} }
 .al-st{font-size:11px;font-weight:700;white-space:nowrap}
 .al-st.armed{color:var(--warn)} .al-st.fired{color:#4ade80}
 .al-remove{width:30px;height:30px;font-size:13px;flex:none}

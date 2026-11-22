@@ -56,9 +56,9 @@ function renderState(el, o, retryFn) {
 
 /* ---------- routing ---------- */
 let chart, candle, vol, l9, l21, l50, markersPrim, chartReady = false;
-let currentSym = null, currentTf = getSettings().defaultTf, lastCandle = null, emaAt = {};
+let currentSym = null, currentTf = getSettings().defaultTf, lastCandle = null, emaAt = {}, lastStockData = null;
 const lastv = (a) => (a && a.length ? a[a.length - 1].value : null);
-const PAGE_TITLES = { dashboard: "Dashboard", search: "Search", watchlist: "Watchlist", screeners: "Screeners", alerts: "Alerts", reports: "Reports" };
+const PAGE_TITLES = { dashboard: "Dashboard", search: "Search", watchlist: "Watchlist", screeners: "Screeners", alerts: "Alerts", reports: "Reports", journal: "Journal" };
 function showPage(name) {
   document.querySelectorAll(".page").forEach((p) => p.classList.toggle("active", p.id === "page-" + name));
   document.querySelectorAll(".navlink,.side-link").forEach((b) => b.classList.toggle("active", b.dataset.page === name));
@@ -71,6 +71,7 @@ function showPage(name) {
   if (name === "screeners") loadScreeners();
   if (name === "alerts") loadAlerts();
   if (name === "reports") loadReports();
+  if (name === "journal") loadJournal();
   if (name === "search" && chartReady && chart) setTimeout(fitChart, 30);
 }
 document.querySelectorAll(".navlink,.side-link").forEach((b) =>
@@ -623,6 +624,7 @@ function renderDetail(d) {
     </div></section>`;
 
   $("detailPanel").innerHTML = html;
+  lastStockData = d;
 }
 
 /* ---------- search autocomplete (R-2) ---------- */
@@ -1038,30 +1040,34 @@ function buildSetPanel() {
 // Every piece of your data that lives only in this browser. Export/restore keeps
 // it safe (a browser clear wipes localStorage) and moves it between devices.
 const BACKUP_KEYS = ["holdings", "watch", "alerts", "settings", "emaCfg", "rsiCfg", "macdCfg", "bbCfg", "stCfg"];
-function exportBackup() {
+async function exportBackup() {
   const data = {};
   BACKUP_KEYS.forEach((k) => { try { const v = localStorage.getItem(k); if (v != null) data[k] = v; } catch (e) {} });
-  const payload = { app: "trader-dashboard", kind: "backup", version: 1, exportedAt: new Date().toISOString(), data };
+  let journal = [];
+  try { journal = await jAll(); } catch (e) {}
+  const payload = { app: "trader-dashboard", kind: "backup", version: 2, exportedAt: new Date().toISOString(), data, journal };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url; a.download = "trader-dashboard-backup-" + new Date().toISOString().slice(0, 10) + ".json";
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
-  showToast("Backup downloaded (" + Object.keys(data).length + " items)", "ok");
+  showToast("Backup downloaded (" + Object.keys(data).length + " items" + (journal.length ? " + " + journal.length + " journal" : "") + ")", "ok");
 }
 function importBackupFile(file) {
   const reader = new FileReader();
-  reader.onload = () => {
+  reader.onload = async () => {
     let payload;
     try { payload = JSON.parse(reader.result); } catch (e) { showToast("That file isn't valid JSON", "err"); return; }
     const data = payload && payload.data;
     if (!data || typeof data !== "object" || Array.isArray(data)) { showToast("Not a Trader Dashboard backup", "err"); return; }
     const keys = Object.keys(data).filter((k) => BACKUP_KEYS.includes(k));
-    if (!keys.length) { showToast("Backup has no recognised data", "err"); return; }
-    if (!confirm("Restore this backup?\n\nIt will REPLACE your current holdings, watchlist, alerts and settings in this browser (" + keys.length + " items). This cannot be undone.")) return;
+    const journal = Array.isArray(payload.journal) ? payload.journal : [];
+    if (!keys.length && !journal.length) { showToast("Backup has no recognised data", "err"); return; }
+    if (!confirm("Restore this backup?\n\nIt will REPLACE your current holdings, watchlist, alerts, settings and journal in this browser (" + keys.length + " items" + (journal.length ? " + " + journal.length + " journal" : "") + "). This cannot be undone.")) return;
     let ok = 0;
     keys.forEach((k) => { try { const v = data[k]; if (typeof v === "string") { JSON.parse(v); localStorage.setItem(k, v); ok++; } } catch (e) {} });
+    if (journal.length) { try { await jBulkPut(journal); } catch (e) {} }
     showToast("Restored " + ok + " items — reloading…", "ok");
     setTimeout(() => location.reload(), 800);
   };
@@ -1580,6 +1586,144 @@ function updateClock() {
   h = h % 12 || 12;
   el.textContent = ist.getDate() + " " + mon + ", " + h + ":" + String(m).padStart(2, "0") + " " + ap;
 }
+
+/* ---------- Phase 3: Trading Journal (IndexedDB) ---------- */
+// Journal entries grow over time, so they live in IndexedDB (not localStorage).
+// They are included in the Settings → Export backup / Restore.
+const JDB_NAME = "traderdash", JDB_STORE = "journal", JDB_VER = 1;
+let _jdb = null, journalPrefill = null;
+function jdb() {
+  if (_jdb) return Promise.resolve(_jdb);
+  return new Promise((resolve, reject) => {
+    let req; try { req = indexedDB.open(JDB_NAME, JDB_VER); } catch (e) { reject(e); return; }
+    req.onupgradeneeded = () => { const db = req.result; if (!db.objectStoreNames.contains(JDB_STORE)) db.createObjectStore(JDB_STORE, { keyPath: "id" }); };
+    req.onsuccess = () => { _jdb = req.result; resolve(_jdb); };
+    req.onerror = () => reject(req.error);
+  });
+}
+function jTx(mode) { return jdb().then((db) => db.transaction(JDB_STORE, mode).objectStore(JDB_STORE)); }
+function jAll() { return jTx("readonly").then((st) => new Promise((res, rej) => { const r = st.getAll(); r.onsuccess = () => res(r.result || []); r.onerror = () => rej(r.error); })).catch(() => []); }
+function jPut(e) { return jTx("readwrite").then((st) => new Promise((res, rej) => { const r = st.put(e); r.onsuccess = () => res(e); r.onerror = () => rej(r.error); })); }
+function jDel(id) { return jTx("readwrite").then((st) => new Promise((res, rej) => { const r = st.delete(id); r.onsuccess = () => res(); r.onerror = () => rej(r.error); })); }
+function jBulkPut(arr) { return jdb().then((db) => new Promise((res, rej) => { const tx = db.transaction(JDB_STORE, "readwrite"), st = tx.objectStore(JDB_STORE); (arr || []).forEach((e) => { if (e && e.id != null) st.put(e); }); tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error); })); }
+function esc(s) { return (s || "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+// Snapshot the engine's signal at the moment of entry (reuses existing data — no recompute).
+function journalSnapshot(d) {
+  if (!d) return null;
+  const s9 = d.signal_9_21, s21 = d.signal_21_50, c = d.confluence;
+  return {
+    verdict: d.verdict ? ((d.verdict.headline || "").startsWith("STRONG") ? "STRONG BUY" : d.verdict.action) : null,
+    headline: d.verdict ? d.verdict.headline : null,
+    ema9: s9 ? s9.fast : null, ema21: s9 ? s9.slow : (s21 ? s21.fast : null), ema50: s21 ? s21.slow : null,
+    s9: s9 ? s9.regime : null, s9_fresh: s9 ? !!s9.fresh_bull : null, s21: s21 ? s21.regime : null,
+    confluence: c ? (c.bull + "/" + c.total + " " + c.side) : null,
+    last_week: d.last_week || null, price_at: d.price != null ? d.price : null,
+  };
+}
+function loadJournal() { jAll().then(renderJournal); }
+function jWinBadge(e) {
+  if (e.status !== "closed" || !e.realised) return "";
+  const w = e.realised.pl_pct >= 0;
+  return `<span class="j-wl ${w ? "win" : "loss"}">${w ? "WIN" : "LOSS"}</span>`;
+}
+function journalCard(e) {
+  const snap = e.entry.snapshot || {}, closed = e.status === "closed";
+  const plHtml = closed && e.realised ? `<span class="j-pl ${e.realised.pl_pct >= 0 ? "up" : "down"}">${e.realised.pl_abs >= 0 ? "+" : ""}₹${fmt(e.realised.pl_abs)} · ${e.realised.pl_pct >= 0 ? "+" : ""}${e.realised.pl_pct}%</span>` : "";
+  return `<div class="jcard ${closed ? "closed" : "open"}">
+      <div class="jc-top">${logoTile(e.name, e.ticker)}
+        <div class="jc-id"><div class="jc-name">${esc(e.name)} ${jWinBadge(e)}</div>
+          <div class="jc-tkr">${e.ticker} · ${e.qty} @ ₹${fmt(e.entry.price)} · ${e.entry.date}</div></div>
+        <div class="jc-stat">${closed ? plHtml : '<span class="j-open">● Open</span>'}</div></div>
+      <div class="jc-snap">
+        <span class="jc-chip">Signal at entry: <b>${snap.verdict || "—"}</b></span>
+        ${snap.ema9 != null ? `<span class="jc-chip">EMA 9/21/50 ₹${fmt(snap.ema9)} / ${fmt(snap.ema21)} / ${fmt(snap.ema50)}</span>` : ""}
+        ${snap.confluence ? `<span class="jc-chip">Confluence ${snap.confluence}</span>` : ""}
+        ${snap.last_week ? `<span class="jc-chip">wk ${snap.last_week}</span>` : ""}</div>
+      ${e.entry.reason ? `<div class="jc-reason"><b>Why I bought:</b> ${esc(e.entry.reason)}</div>` : ""}
+      ${e.entry.notes ? `<div class="jc-notes">${esc(e.entry.notes)}</div>` : ""}
+      ${closed ? `<div class="jc-exit"><b>Exit:</b> ${e.exit.date} @ ₹${fmt(e.exit.price)}${e.exit.reason ? " — " + esc(e.exit.reason) : ""}</div>` : ""}
+      <div class="jc-foot">
+        ${!closed ? `<button class="btn sm" data-close="${e.id}">Close trade</button>` : ""}
+        <button class="btn sm ghost" data-view="${e.ticker}">Open chart</button>
+        <button class="btn sm ghost j-del" data-del="${e.id}">Delete</button></div>
+      <div class="jc-closeform hidden" id="jclose-${e.id}"></div></div>`;
+}
+function renderJournal(entries) {
+  const body = $("journalBody"); if (!body) return;
+  entries = (entries || []).slice().sort((a, b) => (b.id || 0) - (a.id || 0));
+  const open = entries.filter((e) => e.status !== "closed");
+  const closed = entries.filter((e) => e.status === "closed");
+  const wins = closed.filter((e) => e.realised && e.realised.pl_pct >= 0).length;
+  const realisedPl = closed.reduce((s, e) => s + ((e.realised && e.realised.pl_abs) || 0), 0);
+  const winRate = closed.length ? Math.round(wins / closed.length * 100) : null;
+  const stat = (cls, ic, v, l) => `<div class="statcard ${cls}"><div class="st-ic">${statIcon(ic)}</div><div class="st-t"><div class="st-v">${v}</div><div class="st-l">${l}</div></div></div>`;
+  const pf = journalPrefill || {};
+  const today = new Date().toISOString().slice(0, 10);
+  body.innerHTML = `<div class="statrow">
+      ${stat("blue", "up", entries.length, "Trades logged")}
+      ${stat("amber", "clock", open.length, "Open")}
+      ${stat(winRate == null ? "blue" : (winRate >= 50 ? "green" : "red"), "star", winRate == null ? "—" : winRate + "%", "Win rate")}
+      ${stat(realisedPl >= 0 ? "green" : "red", "up", (realisedPl >= 0 ? "+" : "") + "₹" + fmt(realisedPl), "Realised P/L")}
+    </div>
+    <form id="jForm" class="jform">
+      <div class="acwrap jgrow"><input id="jSym" class="al-in" placeholder="Stock — name or symbol" autocomplete="off" value="${pf.t ? esc(pf.t) : ""}"><div id="jDrop" class="dropdown hidden"></div></div>
+      <input id="jQty" class="al-in jqty" type="number" min="0" step="any" placeholder="Qty">
+      <input id="jPrice" class="al-in jqty" type="number" min="0" step="any" placeholder="Entry ₹" value="${pf.price != null ? pf.price : ""}">
+      <input id="jDate" class="al-in jqty" type="date" value="${today}">
+      <input id="jReason" class="al-in jgrow" placeholder="Why are you buying?">
+      <button type="submit" class="btn">＋ Log trade</button>
+    </form>
+    <div class="j-note">Entries capture the weekly signal at the moment you log them and are saved in this browser (included in Settings → Export backup).</div>
+    ${open.length ? `<h3 class="jsec">Open positions <span>${open.length}</span></h3><div class="jlist">${open.map(journalCard).join("")}</div>` : ""}
+    ${closed.length ? `<h3 class="jsec">Closed trades <span>${closed.length}</span></h3><div class="jlist">${closed.map(journalCard).join("")}</div>` : ""}
+    ${!entries.length ? stateBox({ icon: "📓", title: "No trades logged yet", msg: "Log a buy above, or tap ✎ Journal on any stock's chart to capture the signal at the time." }) : ""}`;
+  const pfSnap = pf.snapshot, pfName = pf.n; journalPrefill = null;
+  attachAutocomplete($("jSym"), $("jDrop"), (s) => { $("jSym").value = s.t; $("jSym").dataset.name = s.n; });
+  $("jForm").addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    let s = $("jSym").value.trim().toUpperCase(); if (!s) { showToast("Pick a stock", "err"); return; }
+    if (!s.includes(".")) s += ".NS";
+    const qty = parseFloat($("jQty").value), price = parseFloat($("jPrice").value);
+    if (!(qty > 0)) { showToast("Enter a quantity", "err"); return; }
+    if (!(price > 0)) { showToast("Enter an entry price", "err"); return; }
+    const name = $("jSym").dataset.name || (pfName && pf.t === s ? pfName : "") || s.replace(".NS", "");
+    let snapshot = (pfSnap && pf.t === s) ? pfSnap : null;
+    if (!snapshot) { try { const d = await (await fetch("/api/stock?symbol=" + encodeURIComponent(s))).json(); snapshot = journalSnapshot(d); } catch (e) {} }
+    const entry = { id: Date.now(), ticker: s, name, qty, status: "open",
+      entry: { date: $("jDate").value || today, price, reason: $("jReason").value.trim(), notes: "", snapshot } };
+    await jPut(entry); showToast("Trade logged", "ok"); loadJournal();
+  });
+  body.querySelectorAll("[data-del]").forEach((b) => b.addEventListener("click", async () => { if (confirm("Delete this journal entry? This cannot be undone.")) { await jDel(+b.dataset.del); loadJournal(); } }));
+  body.querySelectorAll("[data-view]").forEach((b) => b.addEventListener("click", () => loadStock(b.dataset.view)));
+  body.querySelectorAll("[data-close]").forEach((b) => b.addEventListener("click", () => openJournalClose(+b.dataset.close)));
+}
+async function openJournalClose(id) {
+  const box = document.getElementById("jclose-" + id); if (!box) return;
+  const e = (await jAll()).find((x) => x.id === id); if (!e) return;
+  const today = new Date().toISOString().slice(0, 10);
+  box.classList.remove("hidden");
+  box.innerHTML = `<div class="jclose">
+      <input id="jcPrice" class="al-in jqty" type="number" min="0" step="any" placeholder="Exit ₹">
+      <input id="jcDate" class="al-in jqty" type="date" value="${today}">
+      <input id="jcReason" class="al-in jgrow" placeholder="Reason for selling">
+      <button class="btn sm" id="jcSave">Save exit</button>
+      <button class="btn sm ghost" id="jcCancel">Cancel</button></div>`;
+  document.getElementById("jcCancel").addEventListener("click", () => { box.classList.add("hidden"); box.innerHTML = ""; });
+  document.getElementById("jcSave").addEventListener("click", async () => {
+    const xp = parseFloat(document.getElementById("jcPrice").value);
+    if (!(xp > 0)) { showToast("Enter an exit price", "err"); return; }
+    e.status = "closed";
+    e.exit = { date: document.getElementById("jcDate").value || today, price: xp, reason: document.getElementById("jcReason").value.trim() };
+    e.realised = { pl_abs: Math.round((xp - e.entry.price) * e.qty * 100) / 100, pl_pct: Math.round((xp - e.entry.price) / e.entry.price * 1000) / 10 };
+    await jPut(e); showToast("Trade closed", "ok"); loadJournal();
+  });
+}
+$("journalBtn").addEventListener("click", () => {
+  if (!currentSym || !lastStockData) { showToast("Open a stock first", "err"); return; }
+  const d = lastStockData;
+  journalPrefill = { t: currentSym, n: (d.quality && d.quality.name) || currentSym.replace(".NS", ""), price: d.price, snapshot: journalSnapshot(d) };
+  showPage("journal");
+});
 
 /* ---------- boot ---------- */
 updateBellDot();
