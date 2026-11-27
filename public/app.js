@@ -58,7 +58,7 @@ function renderState(el, o, retryFn) {
 let chart, candle, vol, l9, l21, l50, markersPrim, chartReady = false;
 let currentSym = null, currentTf = getSettings().defaultTf, lastCandle = null, emaAt = {}, lastStockData = null;
 const lastv = (a) => (a && a.length ? a[a.length - 1].value : null);
-const PAGE_TITLES = { home: "Markets", dashboard: "Portfolio", search: "Search", watchlist: "Watchlist", screeners: "Screener", alerts: "Alerts", reports: "Reports", journal: "Journal", compare: "Compare" };
+const PAGE_TITLES = { home: "Markets", dashboard: "Portfolio", search: "Search", watchlist: "Watchlist", screeners: "Screener", alerts: "Alerts", reports: "Reports", journal: "Journal", compare: "Compare", settings: "Settings" };
 function showPage(name) {
   document.querySelectorAll(".page").forEach((p) => p.classList.toggle("active", p.id === "page-" + name));
   document.querySelectorAll(".navlink,.side-link").forEach((b) => b.classList.toggle("active", b.dataset.page === name));
@@ -73,6 +73,7 @@ function showPage(name) {
   if (name === "reports") loadReports();
   if (name === "journal") loadJournal();
   if (name === "compare") loadCompare();
+  if (name === "settings") renderSettingsPage();
   if (name === "search" && chartReady && chart) setTimeout(fitChart, 30);
 }
 document.querySelectorAll(".navlink,.side-link").forEach((b) =>
@@ -1943,11 +1944,71 @@ function buildSetPanel() {
   impFile.addEventListener("change", (e) => { const f = e.target.files && e.target.files[0]; if (f) importBackupFile(f); e.target.value = ""; });
   document.getElementById("setHealth").addEventListener("click", checkDataFeed);
 }
+/* ---------- Settings PAGE (Phase R6) — consolidates chart defaults, indicator
+   profiles, the trading journal and data/backup. Reuses the same handlers; no
+   setting or profile is reset (all keys stay in localStorage as-is). ---------- */
+function renderSettingsPage() {
+  const body = $("settingsBody");
+  if (!body) return;
+  const s = getSettings();
+  const autoJ = s.autoJournal !== false;
+  const profOpts = (typeof INDSTORE !== "undefined" && INDSTORE.order ? INDSTORE.order : [])
+    .map((id) => { const p = INDSTORE.profiles[id]; return p ? `<option value="${id}"${id === INDSTORE.active ? " selected" : ""}>${_esc(p.name)}${p.builtin ? "" : " ✎"}</option>` : ""; }).join("");
+  body.innerHTML = `
+    <div class="sec-h"><span>Chart &amp; display</span></div>
+    <div class="set-card">
+      <div class="setrow"><span class="setlbl">Default chart timeframe</span>
+        <div class="seg" id="setTf">
+          <button data-tf="D"${s.defaultTf === "D" ? ' class="active"' : ""}>Daily</button>
+          <button data-tf="W"${s.defaultTf === "W" ? ' class="active"' : ""}>Weekly</button>
+          <button data-tf="M"${s.defaultTf === "M" ? ' class="active"' : ""}>Monthly</button></div>
+        <div class="sethint">Signals stay weekly 9/21 &amp; 21/50 — this only sets the chart view.</div></div>
+      <div class="setrow"><label class="tgl"><span class="setlbl" style="margin:0">Auto-scan on Markets</span>
+        <input type="checkbox" id="setAuto"${s.autoScan ? " checked" : ""}></label>
+        <div class="sethint">Off = Markets opens instantly; tap Refresh for the live scan.</div></div></div>
+
+    <div class="sec-h"><span>Indicators</span></div>
+    <div class="set-card">
+      <div class="setrow"><span class="setlbl">Active indicator profile</span>
+        <div class="setbtns"><select id="setProf" class="fsel">${profOpts}</select><button class="btn sm ghost" id="setProfReset">Reset to defaults</button></div>
+        <div class="sethint">Full indicator management (all 21 indicators, parameters, and custom profiles) is on any chart via <b>ƒ Indicators</b>. Overlays never change your BUY/SELL signals.</div></div></div>
+
+    <div class="sec-h"><span>Trading journal</span></div>
+    <div class="set-card">
+      <div class="setrow"><label class="tgl"><span class="setlbl" style="margin:0">Auto-log trades to the journal</span>
+        <input type="checkbox" id="setAutoJ"${autoJ ? " checked" : ""}></label>
+        <div class="sethint">On = a journal entry opens when you add a holding and closes when you remove it. Off = log trades manually only.</div></div></div>
+
+    <div class="sec-h"><span>Data &amp; backup</span></div>
+    <div class="set-card">
+      <div class="setrow">
+        <div class="setbtns">
+          <button class="btn sm" id="setExport">↓ Export backup</button>
+          <button class="btn sm ghost" id="setImport">↑ Restore</button>
+          <input type="file" id="setImportFile" accept="application/json,.json" hidden></div>
+        <div class="sethint">Your holdings, watchlist, alerts, journal, indicator profiles &amp; settings live only in this browser. Export a JSON backup (also how you move data to another device). Restore replaces current data.</div>
+        <div class="setbtns" style="margin-top:10px"><button class="btn sm ghost" id="setHealth">⚡ Check data feed</button><span id="setHealthOut" class="sethint" style="margin:0"></span></div></div></div>`;
+  body.querySelectorAll("#setTf button").forEach((b) =>
+    b.addEventListener("click", () => {
+      const ns = getSettings(); ns.defaultTf = b.dataset.tf; saveSettings(ns);
+      body.querySelectorAll("#setTf button").forEach((x) => x.classList.toggle("active", x === b));
+      currentTf = b.dataset.tf; if (currentSym) loadStock(currentSym, currentTf);
+    }));
+  $("setAuto").addEventListener("change", (e) => { const ns = getSettings(); ns.autoScan = e.target.checked; saveSettings(ns); });
+  $("setAutoJ").addEventListener("change", (e) => { const ns = getSettings(); ns.autoJournal = e.target.checked; saveSettings(ns); showToast(e.target.checked ? "Auto-journal on" : "Auto-journal off", "ok"); });
+  const prof = $("setProf"); if (prof) prof.addEventListener("change", () => { if (typeof switchProfile === "function") switchProfile(prof.value); });
+  const pr = $("setProfReset"); if (pr) pr.addEventListener("click", () => { if (typeof resetProfile === "function") { resetProfile(); renderSettingsPage(); } });
+  $("setExport").addEventListener("click", exportBackup);
+  const impBtn = $("setImport"), impFile = $("setImportFile");
+  impBtn.addEventListener("click", () => impFile.click());
+  impFile.addEventListener("change", (e) => { const f = e.target.files && e.target.files[0]; if (f) importBackupFile(f); e.target.value = ""; });
+  $("setHealth").addEventListener("click", checkDataFeed);
+}
 
 /* ---------- Phase 0: backup / restore + data health ---------- */
 // Every piece of your data that lives only in this browser. Export/restore keeps
 // it safe (a browser clear wipes localStorage) and moves it between devices.
-const BACKUP_KEYS = ["holdings", "watch", "alerts", "settings", "cash", "compare", "emaCfg", "rsiCfg", "macdCfg", "bbCfg", "stCfg"];
+const BACKUP_KEYS = ["holdings", "watch", "alerts", "settings", "cash", "compare", "emaCfg", "rsiCfg", "macdCfg", "bbCfg", "stCfg", "indProfiles", "taCfg", "pwCats"];
 async function exportBackup() {
   const data = {};
   BACKUP_KEYS.forEach((k) => { try { const v = localStorage.getItem(k); if (v != null) data[k] = v; } catch (e) {} });
@@ -1999,10 +2060,7 @@ async function checkDataFeed() {
     if (out) out.style.color = okFeed ? "var(--buy)" : "var(--sell)";
   } catch (e) { if (out) { out.textContent = "● Can't reach the feed"; out.style.color = "var(--sell)"; } }
 }
-$("setBtn").addEventListener("click", (e) => { e.stopPropagation(); buildSetPanel(); $("setPanel").classList.toggle("hidden"); });
-document.addEventListener("click", (e) => {
-  if (!$("setPanel").contains(e.target) && e.target.id !== "setBtn") $("setPanel").classList.add("hidden");
-});
+$("setBtn").addEventListener("click", () => showPage("settings"));
 
 /* ---------- Dashboard (holdings) ---------- */
 const HCLASS = { HOLD: "HOLD", SELL: "SELL", EXIT: "EXIT", NODATA: "WAIT", ERROR: "ERROR" };
