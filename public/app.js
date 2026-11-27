@@ -537,6 +537,32 @@ function technicalSummary() {
   return `<div class="ta-list">${rows.join("")}</div>
     <div class="ta-foot">This describes what your <b>selected indicators</b> currently show on the ${tf} chart — it is <b>not a prediction, a guarantee, or advice</b>, and it never changes your weekly BUY/SELL signal. Data is ~15-min delayed.</div>`;
 }
+function wireDetailSubnav() {
+  const nav = document.querySelector(".d-subnav");
+  if (!nav) return;
+  const btns = [...nav.querySelectorAll("button[data-anchor]")];
+  btns.forEach((b) => b.addEventListener("click", () => {
+    const el = document.getElementById(b.dataset.anchor);
+    if (!el) return;
+    const se = document.scrollingElement || document.documentElement;
+    const top = Math.max(0, el.getBoundingClientRect().top + se.scrollTop - 108);
+    se.scrollTop = top; // direct (CSS scroll-behavior:smooth animates it where supported)
+    btns.forEach((x) => x.classList.toggle("active", x === b));
+  }));
+  // highlight the section currently in view
+  const secs = btns.map((b) => document.getElementById(b.dataset.anchor)).filter(Boolean);
+  if ("IntersectionObserver" in window && secs.length) {
+    const obs = new IntersectionObserver((entries) => {
+      entries.forEach((en) => {
+        if (en.isIntersecting) {
+          const id = en.target.id;
+          btns.forEach((b) => b.classList.toggle("active", b.dataset.anchor === id));
+        }
+      });
+    }, { rootMargin: "-120px 0px -60% 0px", threshold: 0 });
+    secs.forEach((s) => obs.observe(s));
+  }
+}
 function renderTASummary() {
   const wrap = document.getElementById("taSummaryWrap");
   if (!wrap) return;
@@ -1360,7 +1386,11 @@ function renderDetail(d) {
      <span class="${mMacd >= mSig ? "up" : "down"}">${mMacd >= mSig ? "bullish" : "bearish"} · hist ${mHist >= 0 ? "+" : ""}${Math.round(mHist * 100) / 100}</span>`;
 
   // ---- Section 1: Trading signal & technical analysis ----
-  let html = `<section class="d-sec">
+  let html = `<nav class="d-subnav">
+      <button data-anchor="d-analysis" class="active">Analysis</button>
+      <button data-anchor="d-fundamentals">Fundamentals</button>
+      <button data-anchor="d-news">News</button></nav>
+    <section class="d-sec" id="d-analysis">
     <h2 class="d-h"><span class="d-num">1</span>Trading signal &amp; technical analysis</h2>
     ${explainSignal(d)}
     <div class="d-grid">
@@ -1382,7 +1412,7 @@ function renderDetail(d) {
       <div id="perspectives"><div class="scanhint"><span class="spinner"></span>Analysing across timeframes…</div></div></section>`;
 
   // ---- Section 2: Fundamentals & quality ----
-  html += `<section class="d-sec"><h2 class="d-h"><span class="d-num">3</span>Fundamentals &amp; quality</h2><div class="d-grid">`;
+  html += `<section class="d-sec" id="d-fundamentals"><h2 class="d-h"><span class="d-num">3</span>Fundamentals &amp; quality</h2><div class="d-grid">`;
   if (q && q.available) {
     const qcls = { PASS: "ok", NEAR: "near", FAIL: "no" }[q.quality] || "";
     const vcls = { CHEAP: "ok", FAIR: "near", EXPENSIVE: "no" }[q.valuation] || "";
@@ -1433,11 +1463,12 @@ function renderDetail(d) {
     </div></section>`;
 
   // ---- Section 6: Latest news (facts only — headline, source, date, link) ----
-  html += `<section class="d-sec"><h2 class="d-h"><span class="d-num">6</span>Latest news</h2>
+  html += `<section class="d-sec" id="d-news"><h2 class="d-h"><span class="d-num">6</span>Latest news</h2>
       <div id="newsBox"><div class="scanhint"><span class="spinner"></span>Loading news…</div></div></section>`;
 
   $("detailPanel").innerHTML = html;
   lastStockData = d;
+  wireDetailSubnav();  // sticky Analysis/Fundamentals/News jump nav
   renderTASummary();   // optional plain-English summary (from selected indicators), when enabled
   loadPerspectives(d); // async: fills the Trading-perspectives section (daily + delayed intraday)
   loadNews(d.symbol);  // async: fills the Latest-news section (Google News RSS, facts only)
@@ -1701,6 +1732,50 @@ function renderHomeCards() {
     || stateBox({ icon: "🗂️", title: "Nothing here", msg: "No stocks match these filters — try another category or price range." });
   wireStockCards(box);
 }
+/* ---- Markets curated landing (Phase R2) — picks + watchlist movers + fired alerts.
+   Reuses the same scanner data + cardHTML; the full filterable grid stays below. */
+function renderMarketPicks() {
+  const box = $("marketPicks");
+  if (!box) return;
+  const picks = suggestions.filter((x) => x.category === "STRONG BUY" || x.category === "BUY").slice(0, 8);
+  box.innerHTML = picks.length ? picks.map(cardHTML).join("")
+    : stateBox({ icon: "🔍", title: "No fresh buy signals today", msg: "Nothing is on a STRONG BUY or BUY trigger right now. Browse the full universe below or in Screener." });
+  if (picks.length) wireStockCards(box);
+  const cur = $("marketCurated"); if (cur) cur.classList.remove("hidden");
+  const br = $("browseAll"); if (br) br.classList.remove("hidden");
+}
+function renderMarketSide() {
+  // Watchlist movers
+  const wbox = $("marketWatch");
+  if (wbox) {
+    const w = getWatch();
+    const byT = {}; suggestions.forEach((x) => { byT[(x.symbol || "").toUpperCase()] = x; });
+    const rows = w.map((x) => byT[(x.t || "").toUpperCase()]).filter(Boolean)
+      .sort((a, b) => Math.abs(b.chg1w || 0) - Math.abs(a.chg1w || 0)).slice(0, 5);
+    if (!w.length) wbox.innerHTML = `<div class="mk-empty">Star a stock to track it here.</div>`;
+    else if (!rows.length) wbox.innerHTML = `<div class="mk-empty">Your watched stocks aren’t in today’s scan.</div>`;
+    else wbox.innerHTML = rows.map((x) => {
+      const c = x.chg1w, cls = c == null ? "" : c >= 0 ? "up" : "down";
+      return `<button class="mk-row" data-sym="${x.symbol}" type="button">
+        <span class="mk-row-n">${x.name || x.symbol.replace(/\.(NS|BO)$/i, "")}</span>
+        <span class="mk-row-r"><b>₹${fmt(x.price)}</b> <span class="${cls}">${c == null ? "" : (c >= 0 ? "+" : "") + c.toFixed(1) + "%"}</span></span></button>`;
+    }).join("");
+    wbox.querySelectorAll(".mk-row[data-sym]").forEach((b) => b.addEventListener("click", () => loadStock(b.dataset.sym)));
+  }
+  // Alerts fired
+  const abox = $("marketAlerts");
+  if (abox) {
+    const all = getAlerts();
+    const fired = all.filter((a) => a.fired && a.t).slice(0, 5);
+    const active = all.filter((a) => !a.fired).length;
+    if (fired.length) abox.innerHTML = fired.map((a) =>
+      `<button class="mk-row alert" data-sym="${a.t}" type="button"><span class="mk-row-n">${alCondText(a)}</span></button>`).join("")
+      + `<button class="mk-link" id="mkAllAlerts" type="button" style="margin-top:6px">Manage alerts →</button>`;
+    else abox.innerHTML = `<div class="mk-empty">No alerts fired${active ? ` · ${active} armed` : ""}. <button class="mk-link" id="mkAllAlerts" type="button">Set an alert →</button></div>`;
+    abox.querySelectorAll(".mk-row[data-sym]").forEach((b) => b.addEventListener("click", () => loadStock(b.dataset.sym)));
+    const ma = document.getElementById("mkAllAlerts"); if (ma) ma.addEventListener("click", () => showPage("alerts"));
+  }
+}
 async function loadSuggestions() {
   $("homeFilters").classList.add("hidden");
   $("homeCards").innerHTML =
@@ -1711,15 +1786,19 @@ async function loadSuggestions() {
     if (suggestions.length && suggestions.every((x) => x.category === "ERROR")) {
       suggestions = [];
       $("homeFilters").classList.add("hidden"); $("homeStats").innerHTML = "";
+      $("marketCurated").classList.add("hidden"); $("browseAll").classList.add("hidden");
       renderState($("homeCards"), { icon: "📡", title: "Feed unavailable", msg: "Can't reach the price feed to scan right now — this is usually temporary.", retry: true }, loadSuggestions);
       return;
     }
     renderHomeStats();
+    renderMarketPicks();
+    renderMarketSide();
     renderFilters();
     renderHomeCards();
     setLive();
   } catch (e) {
     $("homeStats").innerHTML = "";
+    $("marketCurated").classList.add("hidden"); $("browseAll").classList.add("hidden");
     renderState($("homeCards"), { icon: "📡", title: "Scan failed", msg: "Couldn't run the scan. Check your connection and try again.", retry: true }, loadSuggestions);
   }
 }
@@ -1797,14 +1876,16 @@ function loadAlerts() { if (typeof renderAlerts === "function") renderAlerts(); 
 function loadReports() { if (typeof renderReports === "function") renderReports(); }
 function loadHome() {
   if (getSettings().autoScan) { loadSuggestions(); return; }
-  if (suggestions.length) { renderHomeStats(); renderFilters(); renderHomeCards(); return; }
+  if (suggestions.length) { renderHomeStats(); renderMarketPicks(); renderMarketSide(); renderFilters(); renderHomeCards(); return; }
   $("homeFilters").classList.add("hidden");
+  $("marketCurated").classList.add("hidden"); $("browseAll").classList.add("hidden");
   $("homeCards").innerHTML = '<div class="empty">Auto-scan is off — <button id="scanNow" class="btn sm">Scan now</button></div>';
   const sb = document.getElementById("scanNow");
   if (sb) sb.addEventListener("click", loadSuggestions);
 }
 $("refreshHome").addEventListener("click", () =>
   withBtnLoading($("refreshHome"), "Refreshing…", loadSuggestions));
+(() => { const b = document.getElementById("mkBrowseTop"); if (b) b.addEventListener("click", () => { const el = document.getElementById("browseAll"); if (el) el.scrollIntoView({ behavior: "smooth", block: "start" }); }); })();
 $("refreshWatch").addEventListener("click", () => withBtnLoading($("refreshWatch"), "Refreshing…", loadWatchlist));
 $("bellBtn").addEventListener("click", () => showPage("alerts"));
 $("addHoldBtn").addEventListener("click", () => { if (currentSym) addHolding(currentSym, $("cSym").textContent); });
@@ -2125,7 +2206,7 @@ async function pollTick() {
   try {
     if (active === "page-dashboard") await refreshHoldingsQuiet();
     else if (active === "page-search" && currentSym) await refreshQuoteQuiet();
-    else if (active === "page-home") await updateCardPricesInPlace($("homeCards"));
+    else if (active === "page-home") { await updateCardPricesInPlace($("marketPicks")); await updateCardPricesInPlace($("homeCards")); }
     else if (active === "page-screeners") await updateCardPricesInPlace(document.querySelector("#screenBody .stocklist"));
     else if (active === "page-watchlist") await updateCardPricesInPlace($("watchCards"));
     else if (active === "page-reports") await renderReports(true);
