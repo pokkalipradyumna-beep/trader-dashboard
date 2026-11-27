@@ -774,7 +774,17 @@ button{font-family:inherit}
 .cardstar{background:transparent;border:0;color:var(--faint);font-size:17px;cursor:pointer;padding:0 2px;line-height:1;transition:.15s}
 .cardstar:hover{color:#fbbf24}
 .cardstar.on{color:#fbbf24}
-.foot-r{display:flex;align-items:center;gap:8px}
+/* Phase R3: compare + alert row actions */
+.cardcmp,.cardalert{background:transparent;border:0;color:var(--faint);font-size:15px;cursor:pointer;padding:0 2px;line-height:1;transition:.15s}
+.cardcmp:hover,.cardalert:hover{color:var(--accent)}
+.cardcmp.on{color:var(--accent)}
+.foot-r{display:flex;align-items:center;gap:10px}
+/* Phase R3: compare count badge on the Compare nav item */
+.side-link{position:relative}
+.nav-badge{position:absolute;top:6px;left:26px;min-width:16px;height:16px;padding:0 4px;border-radius:9px;
+  background:var(--accent);color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;line-height:1}
+.nav-badge.hidden{display:none}
+@media(max-width:760px){.nav-badge{left:auto;right:7px;top:4px}}
 
 /* section titles + watchlist */
 .secttl{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--dim);margin:0 0 12px}

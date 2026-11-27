@@ -1652,6 +1652,8 @@ function cardHTML(x) {
         <span class="foot-note">Tap card for chart &amp; signal</span>
         <div class="foot-r">
           <button class="cardstar${isWatched(x.symbol) ? " on" : ""}" data-star="${x.symbol}" data-sn="${nm}" title="Watchlist">${isWatched(x.symbol) ? "★" : "☆"}</button>
+          <button class="cardcmp${inCompare(x.symbol) ? " on" : ""}" data-cmp="${x.symbol}" data-cn="${nm}" title="Add to Compare" aria-label="Compare">⇄</button>
+          <button class="cardalert" data-alert="${x.symbol}" data-an="${nm}" title="Set an alert" aria-label="Alert">🔔</button>
           <button class="addbtn" data-add="${x.symbol}" data-name="${nm}">+ Add</button>
         </div>
       </div></div>`;
@@ -1707,7 +1709,16 @@ function renderHomeStats() {
 }
 function wireStockCards(box) {
   box.querySelectorAll(".card").forEach((el) =>
-    el.addEventListener("click", (e) => { if (!e.target.closest(".addbtn,.cardstar")) loadStock(el.dataset.sym); }));
+    el.addEventListener("click", (e) => { if (!e.target.closest(".addbtn,.cardstar,.cardcmp,.cardalert")) loadStock(el.dataset.sym); }));
+  box.querySelectorAll(".cardcmp").forEach((b) =>
+    b.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const on = toggleCompare(b.dataset.cmp, b.dataset.cn);
+      b.classList.toggle("on", on); b.title = on ? "In Compare — click to remove" : "Add to Compare";
+      if (document.getElementById("page-compare").classList.contains("active")) loadCompare();
+    }));
+  box.querySelectorAll(".cardalert").forEach((b) =>
+    b.addEventListener("click", (e) => { e.stopPropagation(); quickAlert(b.dataset.alert, b.dataset.an); }));
   box.querySelectorAll(".addbtn").forEach((b) =>
     b.addEventListener("click", async (e) => {
       e.stopPropagation();
@@ -2997,6 +3008,32 @@ if ($("exportJournal")) $("exportJournal").addEventListener("click", exportJourn
 /* ---------- Compare 2–5 stocks (reuses /api/scan — one call, rich rows) ---------- */
 function getCompare() { try { return JSON.parse(localStorage.getItem("compare") || "[]"); } catch (e) { return []; } }
 function saveCompare(l) { try { localStorage.setItem("compare", JSON.stringify(l)); } catch (e) {} }
+function inCompare(t) { return getCompare().some((x) => x.t === t); }
+/* Phase R3: add/remove a stock from the compare set (max 5) from any card. */
+function toggleCompare(t, n) {
+  const list = getCompare();
+  const i = list.findIndex((x) => x.t === t);
+  if (i >= 0) { list.splice(i, 1); saveCompare(list); updateCompareBadge(); return false; }
+  if (list.length >= 5) { showToast("Compare holds up to 5 — remove one first", "err"); return inCompare(t); }
+  list.push({ t, n: n || t.replace(".NS", "") }); saveCompare(list); updateCompareBadge();
+  showToast((n || t.replace(".NS", "")) + " added to Compare (" + list.length + ")", "ok");
+  return true;
+}
+function updateCompareBadge() {
+  const b = document.getElementById("cmpNavBadge");
+  if (!b) return;
+  const n = getCompare().length;
+  b.textContent = n || "";
+  b.classList.toggle("hidden", !n);
+}
+/* Phase R3: quick-alert — open Alerts with the stock prefilled. */
+function quickAlert(sym, name) {
+  showPage("alerts");
+  setTimeout(() => {
+    const i = document.getElementById("alSym");
+    if (i) { i.value = sym; i.dataset.name = name || sym.replace(".NS", ""); i.focus(); }
+  }, 60);
+}
 async function loadCompare() {
   const list = getCompare();
   if (list.length < 2) { renderCompare([]); return; }
@@ -3100,6 +3137,7 @@ function exportScreenerCSV() {
   if (!ok) setTimeout(() => showToast("⚠ This browser is blocking storage — your holdings, watchlist & alerts won't be saved. Use a normal (non-private) window.", "err"), 1800);
 })();
 updateBellDot();
+updateCompareBadge();
 updateClock();
 setInterval(updateClock, 15000);
 loadMarket();
