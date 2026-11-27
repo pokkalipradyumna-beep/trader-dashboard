@@ -121,12 +121,21 @@ def _universe():
     fabricated. Cached in-process (the file is static)."""
     global _UNIVERSE_CACHE
     if _UNIVERSE_CACHE is None:
-        try:
-            with open(os.path.join(WEB, "symbols.json"), encoding="utf-8") as fh:
-                _UNIVERSE_CACHE = [(d["t"], d.get("n") or d["t"])
-                                   for d in json.load(fh) if d.get("t")]
-        except Exception:  # noqa: BLE001 — fall back to curated-only if unreadable
-            _UNIVERSE_CACHE = []
+        _UNIVERSE_CACHE = []
+        # Try a few locations: public/ (local + bundled), the module dir, and the
+        # cwd — serverless bundlers lay files out differently, so be defensive.
+        for p in (os.path.join(WEB, "symbols.json"),
+                  os.path.join(HERE, "symbols.json"),
+                  os.path.join(HERE, "public", "symbols.json"),
+                  "symbols.json", os.path.join("public", "symbols.json")):
+            try:
+                with open(p, encoding="utf-8") as fh:
+                    _UNIVERSE_CACHE = [(d["t"], d.get("n") or d["t"])
+                                       for d in json.load(fh) if d.get("t")]
+                if _UNIVERSE_CACHE:
+                    break
+            except Exception:  # noqa: BLE001 — try the next candidate path
+                continue
     return _UNIVERSE_CACHE
 
 
