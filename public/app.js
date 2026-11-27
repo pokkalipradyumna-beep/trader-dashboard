@@ -2128,6 +2128,7 @@ $("holdAdd").addEventListener("submit", async (e) => {
 });
 $("refreshDash").addEventListener("click", () => withBtnLoading($("refreshDash"), "Refreshing…", loadHoldings));
 if ($("exportHoldings")) $("exportHoldings").addEventListener("click", exportHoldingsCSV);
+if ($("dashToReports")) $("dashToReports").addEventListener("click", () => showPage("reports"));
 
 /* ---------- live auto-refresh (polls the ~15-min delayed feed) ---------- */
 let lastHoldings = null, pollTimer = null, lastTickAt = 0;
@@ -2292,18 +2293,27 @@ function renderAlerts() {
   const pwSyms = portfolioWatchSyms().length;
   // builder segments for screener alerts
   const saSeg = (key, cur, opts) => `<div class="scf"><div class="scf-l">${key}</div><div class="seg" data-sa="${key}">${opts.map((o) => `<button data-v="${o.v}" class="${String(cur) === String(o.v) ? "active" : ""}">${o.t}</button>`).join("")}</div></div>`;
-  body.innerHTML = `<div class="pw-card">
-      <label class="tgl"><div><div class="pw-t">Watch my portfolio for signal changes</div>
-        <div class="sethint" style="margin:0">One alert for a fresh weekly 9/21 buy or sell cross on any of your <b>${pwSyms}</b> holdings &amp; watchlist stocks.</div></div>
-        <input type="checkbox" id="pwToggle"${pwOn() ? " checked" : ""}></label></div>
+  const sortedSym = symAlerts.slice().sort((a, b) => (b.fired ? 1 : 0) - (a.fired ? 1 : 0));
+  const firedN = symAlerts.filter((a) => a.fired).length;
+  body.innerHTML = `
+    <div class="sec-h"><span>Create an alert</span></div>
     <div class="alert-add">
       <div class="acwrap"><input id="alSym" class="al-in" placeholder="Stock — name or symbol" autocomplete="off"><div id="alDrop" class="dropdown hidden"></div></div>
       ${typeSeg}${inputs}
       <button id="alAdd" class="btn">Add alert</button></div>
     <div class="al-note">⚑ Alerts use delayed (~15 min) data and fire once — they're reminders, not real-time notifications.</div>
-    ${symAlerts.length ? `<div class="alertlist">${symAlerts.map(alertRow).join("")}</div>`
+
+    <div class="sec-h"><span>Portfolio watch</span></div>
+    <div class="pw-card">
+      <label class="tgl"><div><div class="pw-t">Watch my portfolio for signal changes</div>
+        <div class="sethint" style="margin:0">One alert for a fresh weekly 9/21 buy or sell cross on any of your <b>${pwSyms}</b> holdings &amp; watchlist stocks.</div></div>
+        <input type="checkbox" id="pwToggle"${pwOn() ? " checked" : ""}></label></div>
+
+    <div class="sec-h"><span>Your alerts</span>${symAlerts.length ? `<span class="al-count">${firedN ? firedN + " triggered · " : ""}${symAlerts.length} total</span>` : ""}</div>
+    ${symAlerts.length ? `<div class="alertlist">${sortedSym.map(alertRow).join("")}</div>`
       : stateBox({ icon: "🔔", title: "No alerts yet", msg: "Add a price, % move, or weekly-signal alert above." })}
-    <div class="al-sec">Screener alerts</div>
+
+    <div class="sec-h"><span>Screener alerts</span></div>
     <div class="screen-alert-add">
       <div class="sabuild">
         ${saSeg("Signal", saSig, [{ v: "", t: "Any" }, { v: "STRONG BUY", t: "Strong" }, { v: "BUY", t: "Buy" }])}
