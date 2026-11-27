@@ -124,6 +124,12 @@ function saveStCfg() { try { localStorage.setItem("stCfg", JSON.stringify(stCfg)
    chart overlays + display only. */
 let volCfg = { on: true };
 function applyVolume() { if (vol) { try { vol.applyOptions({ visible: !!volCfg.on }); } catch (e) {} } }
+// Phase 2 indicator configs + series/pane refs (overlays on pane 0; ADX/ATR get sub-panes)
+let smaCfg = { on: false, period: 50 }, donCfg = { on: false, period: 20 },
+  ichiCfg = { on: false, conv: 9, base: 26, span: 52 }, kelCfg = { on: false, period: 20, mult: 2 },
+  adxCfg = { on: false, period: 14 }, atrCfg = { on: false, period: 14 };
+let smaSeries = null, donSeries = null, ichiSeries = null, kelSeries = null,
+  adxSeries = null, adxPane = null, atrSeries = null, atrPane = null;
 
 // Registry: drives the settings panel + documents category/placement/params.
 const IND_REGISTRY = [
@@ -137,45 +143,57 @@ const IND_REGISTRY = [
   { id: "bb", cat: "Volatility", place: "overlay", label: "Bollinger", swatch: "#94a3b8",
     params: [{ k: "period", lbl: "len", min: 2, max: 100 }, { k: "mult", lbl: "×", min: 0.5, max: 6, float: true }] },
   { id: "volume", cat: "Volume", place: "panel", label: "Volume", swatch: "#64748b", params: [] },
+  { id: "sma", cat: "Trend", place: "overlay", label: "SMA", swatch: "#cbd5e1", params: [{ k: "period", lbl: "len", min: 2, max: 400 }] },
+  { id: "don", cat: "Trend", place: "overlay", label: "Donchian", swatch: "#22d3ee", params: [{ k: "period", lbl: "len", min: 2, max: 200 }] },
+  { id: "ichi", cat: "Trend", place: "overlay", label: "Ichimoku", swatch: "#3b82f6", params: [{ k: "conv", lbl: "conv", min: 2, max: 60 }, { k: "base", lbl: "base", min: 2, max: 120 }, { k: "span", lbl: "span", min: 2, max: 240 }] },
+  { id: "adx", cat: "Trend", place: "panel", label: "ADX", swatch: "#eab308", params: [{ k: "period", lbl: "len", min: 2, max: 100 }] },
+  { id: "kel", cat: "Volatility", place: "overlay", label: "Keltner", swatch: "#f472b6", params: [{ k: "period", lbl: "len", min: 2, max: 100 }, { k: "mult", lbl: "×", min: 0.5, max: 6, float: true }] },
+  { id: "atr", cat: "Volatility", place: "panel", label: "ATR", swatch: "#f59e0b", params: [{ k: "period", lbl: "len", min: 2, max: 100 }] },
 ];
 const IND_CATS = ["Trend", "Momentum", "Volatility", "Volume"];
 // Live-cfg accessors (getters, because profile-switch REASSIGNS these vars).
-const LIVECFG = { ema: () => emaConfig, st: () => stCfg, rsi: () => rsiCfg, macd: () => macdCfg, bb: () => bbCfg, volume: () => volCfg };
-const SAVECFG = { ema: saveEmaCfg, st: saveStCfg, rsi: saveRsiCfg, macd: saveMacdCfg, bb: saveBbCfg, volume: () => {} };
-const APPLYCFG = { ema: () => applyEMAs(), st: () => applySupertrend(), rsi: () => applyRSI(), macd: () => applyMACD(), bb: () => applyBollinger(), volume: () => applyVolume() };
+const LIVECFG = { ema: () => emaConfig, st: () => stCfg, rsi: () => rsiCfg, macd: () => macdCfg, bb: () => bbCfg, volume: () => volCfg,
+  sma: () => smaCfg, don: () => donCfg, ichi: () => ichiCfg, kel: () => kelCfg, adx: () => adxCfg, atr: () => atrCfg };
+const SAVECFG = { ema: saveEmaCfg, st: saveStCfg, rsi: saveRsiCfg, macd: saveMacdCfg, bb: saveBbCfg, volume: () => {},
+  sma: () => {}, don: () => {}, ichi: () => {}, kel: () => {}, adx: () => {}, atr: () => {} };
+const APPLYCFG = { ema: () => applyEMAs(), st: () => applySupertrend(), rsi: () => applyRSI(), macd: () => applyMACD(), bb: () => applyBollinger(), volume: () => applyVolume(),
+  sma: () => applySMA(), don: () => applyDonchian(), ichi: () => applyIchimoku(), kel: () => applyKeltner(), adx: () => applyADX(), atr: () => applyATR() };
 const _clone = (o) => JSON.parse(JSON.stringify(o));
 
 // Built-in style profiles. EMA display periods differ per style, but the SIGNAL
 // is always the server-side weekly 9/21·21/50 — unaffected by what's displayed.
 const IND_BUILTINS = {
-  intraday: { name: "Intraday", cfg: { ema: [{ on: true, period: 9 }, { on: true, period: 21 }, { on: false, period: 50 }], rsi: { on: true, period: 14 }, macd: { on: true, fast: 12, slow: 26, signal: 9 }, bb: { on: false, period: 20, mult: 2 }, st: { on: true, period: 10, mult: 3 }, volume: { on: true } } },
-  short: { name: "Short-term", cfg: { ema: [{ on: true, period: 9 }, { on: true, period: 21 }, { on: true, period: 50 }], rsi: { on: true, period: 14 }, macd: { on: true, fast: 12, slow: 26, signal: 9 }, bb: { on: false, period: 20, mult: 2 }, st: { on: false, period: 10, mult: 3 }, volume: { on: true } } },
-  swing: { name: "Swing trading", cfg: { ema: [{ on: true, period: 9 }, { on: true, period: 21 }, { on: true, period: 50 }], rsi: { on: true, period: 14 }, macd: { on: true, fast: 12, slow: 26, signal: 9 }, bb: { on: true, period: 20, mult: 2 }, st: { on: true, period: 10, mult: 3 }, volume: { on: true } } },
-  long: { name: "Long-term", cfg: { ema: [{ on: true, period: 50 }, { on: true, period: 100 }, { on: true, period: 200 }], rsi: { on: false, period: 14 }, macd: { on: false, fast: 12, slow: 26, signal: 9 }, bb: { on: false, period: 20, mult: 2 }, st: { on: false, period: 10, mult: 3 }, volume: { on: true } } },
+  intraday: { name: "Intraday", cfg: { ema: [{ on: true, period: 9 }, { on: true, period: 21 }, { on: false, period: 50 }], rsi: { on: true, period: 14 }, macd: { on: true, fast: 12, slow: 26, signal: 9 }, bb: { on: false, period: 20, mult: 2 }, st: { on: true, period: 10, mult: 3 }, volume: { on: true }, sma: { on: false, period: 50 }, don: { on: false, period: 20 }, ichi: { on: false, conv: 9, base: 26, span: 52 }, kel: { on: false, period: 20, mult: 2 }, adx: { on: false, period: 14 }, atr: { on: false, period: 14 } } },
+  short: { name: "Short-term", cfg: { ema: [{ on: true, period: 9 }, { on: true, period: 21 }, { on: true, period: 50 }], rsi: { on: true, period: 14 }, macd: { on: true, fast: 12, slow: 26, signal: 9 }, bb: { on: false, period: 20, mult: 2 }, st: { on: false, period: 10, mult: 3 }, volume: { on: true }, sma: { on: false, period: 50 }, don: { on: false, period: 20 }, ichi: { on: false, conv: 9, base: 26, span: 52 }, kel: { on: false, period: 20, mult: 2 }, adx: { on: false, period: 14 }, atr: { on: false, period: 14 } } },
+  swing: { name: "Swing trading", cfg: { ema: [{ on: true, period: 9 }, { on: true, period: 21 }, { on: true, period: 50 }], rsi: { on: true, period: 14 }, macd: { on: true, fast: 12, slow: 26, signal: 9 }, bb: { on: true, period: 20, mult: 2 }, st: { on: true, period: 10, mult: 3 }, volume: { on: true }, sma: { on: false, period: 50 }, don: { on: false, period: 20 }, ichi: { on: false, conv: 9, base: 26, span: 52 }, kel: { on: false, period: 20, mult: 2 }, adx: { on: false, period: 14 }, atr: { on: false, period: 14 } } },
+  long: { name: "Long-term", cfg: { ema: [{ on: true, period: 50 }, { on: true, period: 100 }, { on: true, period: 200 }], rsi: { on: false, period: 14 }, macd: { on: false, fast: 12, slow: 26, signal: 9 }, bb: { on: false, period: 20, mult: 2 }, st: { on: false, period: 10, mult: 3 }, volume: { on: true }, sma: { on: false, period: 50 }, don: { on: false, period: 20 }, ichi: { on: false, conv: 9, base: 26, span: 52 }, kel: { on: false, period: 20, mult: 2 }, adx: { on: false, period: 14 }, atr: { on: false, period: 14 } } },
 };
 const IND_BUILTIN_IDS = ["intraday", "short", "swing", "long"];
 
 function _cfgFromLive() {
   return { ema: emaConfig.map((e) => ({ on: !!e.on, period: e.period })),
-    rsi: _clone(rsiCfg), macd: _clone(macdCfg), bb: _clone(bbCfg), st: _clone(stCfg), volume: _clone(volCfg) };
+    rsi: _clone(rsiCfg), macd: _clone(macdCfg), bb: _clone(bbCfg), st: _clone(stCfg), volume: _clone(volCfg),
+    sma: _clone(smaCfg), don: _clone(donCfg), ichi: _clone(ichiCfg), kel: _clone(kelCfg), adx: _clone(adxCfg), atr: _clone(atrCfg) };
 }
 function _mergeCfg(cfg) {
   const base = _clone(IND_BUILTINS.short.cfg);
   if (!cfg) return base;
   const out = _clone(base);
   if (Array.isArray(cfg.ema)) out.ema = cfg.ema.slice(0, 3).map((e, i) => ({ on: !!(e && e.on), period: (e && e.period) || base.ema[i].period }));
-  ["rsi", "macd", "bb", "st", "volume"].forEach((k) => { if (cfg[k]) out[k] = Object.assign({}, base[k], cfg[k]); });
+  ["rsi", "macd", "bb", "st", "volume", "sma", "don", "ichi", "kel", "adx", "atr"].forEach((k) => { if (cfg[k]) out[k] = Object.assign({}, base[k], cfg[k]); });
   return out;
 }
 function _liveFromCfg(cfg) {
   const c = _mergeCfg(cfg);
   emaConfig = c.ema.map((e) => ({ on: !!e.on, period: e.period }));
   rsiCfg = _clone(c.rsi); macdCfg = _clone(c.macd); bbCfg = _clone(c.bb); stCfg = _clone(c.st); volCfg = _clone(c.volume);
+  smaCfg = _clone(c.sma); donCfg = _clone(c.don); ichiCfg = _clone(c.ichi); kelCfg = _clone(c.kel); adxCfg = _clone(c.adx); atrCfg = _clone(c.atr);
   saveEmaCfg(); saveRsiCfg(); saveMacdCfg(); saveBbCfg(); saveStCfg(); // keep legacy keys synced for other readers
 }
 function _applyActiveToChart() {
   if (!chart || !chartReady) return;
   applyEMAs(); applyRSI(); applyMACD(); applyBollinger(); applySupertrend(); applyVolume();
+  applySMA(); applyDonchian(); applyIchimoku(); applyKeltner(); applyADX(); applyATR();
   setTimeout(fitChart, 40);
 }
 
@@ -237,6 +255,76 @@ function applySupertrend() {
   } else if (stSeries) {
     try { chart.removeSeries(stSeries.up); chart.removeSeries(stSeries.dn); } catch (e) {}
     stSeries = null;
+  }
+}
+/* ---- Phase 2 draw functions (overlays on pane 0; ADX/ATR in sub-panes) ---- */
+const _ovLine = (col, dash, w) => chart.addSeries(LightweightCharts.LineSeries, { color: col, lineWidth: w || 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false, lineStyle: dash ? LightweightCharts.LineStyle.Dashed : LightweightCharts.LineStyle.Solid }, 0);
+const _setLine = (s, arr) => s.setData(currentCandles.map((c, j) => (arr[j] != null ? { time: c.time, value: Math.round(arr[j] * 100) / 100 } : null)).filter(Boolean));
+function applySMA() {
+  if (smaCfg.on && chart) {
+    if (!smaSeries) smaSeries = _ovLine("#cbd5e1", false, 2);
+    _setLine(smaSeries, computeSMA(currentCandles.map((c) => c.close), smaCfg.period));
+  } else if (smaSeries) { try { chart.removeSeries(smaSeries); } catch (e) {} smaSeries = null; }
+}
+function applyDonchian() {
+  if (donCfg.on && chart) {
+    if (!donSeries) { donSeries = { up: _ovLine("#22d3ee", false), mid: _ovLine("#0891b2", true), lo: _ovLine("#22d3ee", false) }; }
+    const d = computeDonchian(currentCandles, donCfg.period);
+    _setLine(donSeries.up, d.up); _setLine(donSeries.mid, d.mid); _setLine(donSeries.lo, d.lo);
+  } else if (donSeries) { Object.values(donSeries).forEach((s) => { try { chart.removeSeries(s); } catch (e) {} }); donSeries = null; }
+}
+function applyKeltner() {
+  if (kelCfg.on && chart) {
+    if (!kelSeries) { kelSeries = { up: _ovLine("#f472b6", true), mid: _ovLine("#f472b6", false), lo: _ovLine("#f472b6", true) }; }
+    const k = computeKeltner(currentCandles, kelCfg.period, kelCfg.mult);
+    _setLine(kelSeries.up, k.up); _setLine(kelSeries.mid, k.mid); _setLine(kelSeries.lo, k.lo);
+  } else if (kelSeries) { Object.values(kelSeries).forEach((s) => { try { chart.removeSeries(s); } catch (e) {} }); kelSeries = null; }
+}
+function applyIchimoku() {
+  if (ichiCfg.on && chart) {
+    if (!ichiSeries) { ichiSeries = { tenkan: _ovLine("#3b82f6", false), kijun: _ovLine("#ef4444", false), spanA: _ovLine("#15b870", false), spanB: _ovLine("#f59e0b", false), chikou: _ovLine("#a78bfa", true) }; }
+    const C = currentCandles, ic = computeIchimoku(C, ichiCfg.conv, ichiCfg.base, ichiCfg.span);
+    _setLine(ichiSeries.tenkan, ic.tenkan); _setLine(ichiSeries.kijun, ic.kijun);
+    _setLine(ichiSeries.spanA, ic.spanA); _setLine(ichiSeries.spanB, ic.spanB);
+    const sh = ichiCfg.base, chi = [];
+    for (let i = 0; i < C.length; i++) { if (ic.chikou[i] == null) continue; const ti = i - sh; if (ti >= 0) chi.push({ time: C[ti].time, value: Math.round(ic.chikou[i] * 100) / 100 }); }
+    ichiSeries.chikou.setData(chi);
+  } else if (ichiSeries) { Object.values(ichiSeries).forEach((s) => { try { chart.removeSeries(s); } catch (e) {} }); ichiSeries = null; }
+}
+function applyADX() {
+  const LC = LightweightCharts;
+  if (adxCfg.on && chart) {
+    if (!adxSeries) {
+      adxPane = chart.addPane(); const pi = adxPane.paneIndex();
+      adxSeries = {
+        adx: chart.addSeries(LC.LineSeries, { color: "#eab308", lineWidth: 2, priceScaleId: "adx", priceLineVisible: false, lastValueVisible: true }, pi),
+        plus: chart.addSeries(LC.LineSeries, { color: "#15b870", lineWidth: 1, priceScaleId: "adx", priceLineVisible: false, lastValueVisible: false }, pi),
+        minus: chart.addSeries(LC.LineSeries, { color: "#f04444", lineWidth: 1, priceScaleId: "adx", priceLineVisible: false, lastValueVisible: false }, pi),
+      };
+      adxSeries.adx.createPriceLine({ price: 25, color: "#ffffff22", lineStyle: LC.LineStyle.Dashed, lineWidth: 1, axisLabelVisible: true, title: "25" });
+      restretch();
+    }
+    const a = computeADX(currentCandles, adxCfg.period);
+    const mk = (arr) => currentCandles.map((c, j) => (arr[j] != null ? { time: c.time, value: Math.round(arr[j] * 10) / 10 } : null)).filter(Boolean);
+    adxSeries.adx.setData(mk(a.adx)); adxSeries.plus.setData(mk(a.plusDI)); adxSeries.minus.setData(mk(a.minusDI));
+  } else if (adxSeries) {
+    [adxSeries.adx, adxSeries.plus, adxSeries.minus].forEach((s) => { try { chart.removeSeries(s); } catch (e) {} });
+    adxSeries = null; if (adxPane) { try { chart.removePane(adxPane.paneIndex()); } catch (e) {} adxPane = null; } restretch();
+  }
+}
+function applyATR() {
+  const LC = LightweightCharts;
+  if (atrCfg.on && chart) {
+    if (!atrSeries) {
+      atrPane = chart.addPane();
+      atrSeries = chart.addSeries(LC.LineSeries, { color: "#f59e0b", lineWidth: 2, priceScaleId: "atr", priceLineVisible: false, lastValueVisible: true }, atrPane.paneIndex());
+      restretch();
+    }
+    const a = computeATR(currentCandles, atrCfg.period);
+    atrSeries.setData(currentCandles.map((c, j) => (a[j] != null ? { time: c.time, value: Math.round(a[j] * 100) / 100 } : null)).filter(Boolean));
+  } else if (atrSeries) {
+    try { chart.removeSeries(atrSeries); } catch (e) {}
+    atrSeries = null; if (atrPane) { try { chart.removePane(atrPane.paneIndex()); } catch (e) {} atrPane = null; } restretch();
   }
 }
 function computeEMA(closes, period) {
@@ -318,6 +406,84 @@ function computeSupertrend(candles, period, mult) {
     st[i] = trend === 1 ? fLower : fUpper; dir[i] = trend;
   }
   return { st, dir };
+}
+/* ---- Phase 2 indicator math (client-side, from the candles already fetched) ---- */
+function computeSMA(closes, period) {
+  period = period || 50;
+  const out = new Array(closes.length).fill(null);
+  if (closes.length < period) return out;
+  let sum = 0;
+  for (let i = 0; i < closes.length; i++) { sum += closes[i]; if (i >= period) sum -= closes[i - period]; if (i >= period - 1) out[i] = sum / period; }
+  return out;
+}
+function computeDonchian(candles, period) {
+  period = period || 20;
+  const n = candles.length, up = new Array(n).fill(null), lo = new Array(n).fill(null), mid = new Array(n).fill(null);
+  for (let i = period - 1; i < n; i++) {
+    let h = -Infinity, l = Infinity;
+    for (let j = i - period + 1; j <= i; j++) { if (candles[j].high > h) h = candles[j].high; if (candles[j].low < l) l = candles[j].low; }
+    up[i] = h; lo[i] = l; mid[i] = (h + l) / 2;
+  }
+  return { up, lo, mid };
+}
+function computeATR(candles, period) {
+  period = period || 14;
+  const n = candles.length, tr = new Array(n).fill(null), atr = new Array(n).fill(null);
+  for (let i = 0; i < n; i++) {
+    const pc = i > 0 ? candles[i - 1].close : candles[i].close;
+    tr[i] = Math.max(candles[i].high - candles[i].low, Math.abs(candles[i].high - pc), Math.abs(candles[i].low - pc));
+  }
+  if (n > period) {
+    let a = 0; for (let i = 1; i <= period; i++) a += tr[i]; a /= period; atr[period] = a;
+    for (let i = period + 1; i < n; i++) { a = (a * (period - 1) + tr[i]) / period; atr[i] = a; }
+  }
+  return atr;
+}
+function computeKeltner(candles, period, mult) {
+  period = period || 20; mult = mult || 2;
+  const mid = computeEMA(candles.map((c) => c.close), period), atr = computeATR(candles, period);
+  const up = new Array(candles.length).fill(null), lo = new Array(candles.length).fill(null);
+  for (let i = 0; i < candles.length; i++) { if (mid[i] != null && atr[i] != null) { up[i] = mid[i] + mult * atr[i]; lo[i] = mid[i] - mult * atr[i]; } }
+  return { up, mid, lo };
+}
+function computeADX(candles, period) {
+  period = period || 14;
+  const n = candles.length, tr = new Array(n).fill(0), pDM = new Array(n).fill(0), mDM = new Array(n).fill(0);
+  for (let i = 1; i < n; i++) {
+    const up = candles[i].high - candles[i - 1].high, dn = candles[i - 1].low - candles[i].low;
+    pDM[i] = (up > dn && up > 0) ? up : 0; mDM[i] = (dn > up && dn > 0) ? dn : 0;
+    const pc = candles[i - 1].close;
+    tr[i] = Math.max(candles[i].high - candles[i].low, Math.abs(candles[i].high - pc), Math.abs(candles[i].low - pc));
+  }
+  const adx = new Array(n).fill(null), plusDI = new Array(n).fill(null), minusDI = new Array(n).fill(null), dx = new Array(n).fill(null);
+  if (n <= 2 * period) return { adx, plusDI, minusDI };
+  let str = 0, spdm = 0, smdm = 0;
+  for (let i = 1; i <= period; i++) { str += tr[i]; spdm += pDM[i]; smdm += mDM[i]; }
+  for (let i = period + 1; i < n; i++) {
+    str = str - str / period + tr[i]; spdm = spdm - spdm / period + pDM[i]; smdm = smdm - smdm / period + mDM[i];
+    const pDI = str === 0 ? 0 : 100 * spdm / str, mDI = str === 0 ? 0 : 100 * smdm / str;
+    plusDI[i] = pDI; minusDI[i] = mDI;
+    const sum = pDI + mDI; dx[i] = sum === 0 ? 0 : 100 * Math.abs(pDI - mDI) / sum;
+  }
+  let cnt = 0, acc = 0, adxStart = null;
+  for (let i = period + 1; i < n; i++) { if (dx[i] == null) continue; acc += dx[i]; cnt++; if (cnt === period) { adxStart = i; adx[i] = acc / period; break; } }
+  if (adxStart != null) for (let i = adxStart + 1; i < n; i++) { if (dx[i] != null) adx[i] = (adx[i - 1] * (period - 1) + dx[i]) / period; }
+  return { adx, plusDI, minusDI };
+}
+function computeIchimoku(candles, conv, base, span) {
+  conv = conv || 9; base = base || 26; span = span || 52;
+  const n = candles.length;
+  const hh = (p, i) => { let h = -Infinity; for (let j = i - p + 1; j <= i; j++) if (candles[j].high > h) h = candles[j].high; return h; };
+  const ll = (p, i) => { let l = Infinity; for (let j = i - p + 1; j <= i; j++) if (candles[j].low < l) l = candles[j].low; return l; };
+  const tenkan = new Array(n).fill(null), kijun = new Array(n).fill(null), spanA = new Array(n).fill(null), spanB = new Array(n).fill(null), chikou = new Array(n).fill(null);
+  for (let i = 0; i < n; i++) {
+    if (i >= conv - 1) tenkan[i] = (hh(conv, i) + ll(conv, i)) / 2;
+    if (i >= base - 1) kijun[i] = (hh(base, i) + ll(base, i)) / 2;
+    if (tenkan[i] != null && kijun[i] != null) spanA[i] = (tenkan[i] + kijun[i]) / 2;
+    if (i >= span - 1) spanB[i] = (hh(span, i) + ll(span, i)) / 2;
+    chikou[i] = candles[i].close;
+  }
+  return { tenkan, kijun, spanA, spanB, chikou };
 }
 function slots() { return [l9, l21, l50]; }
 
@@ -606,6 +772,12 @@ function renderChart(d) {
   applyRSI();
   applyMACD();
   applyVolume();
+  applySMA();
+  applyDonchian();
+  applyIchimoku();
+  applyKeltner();
+  applyADX();
+  applyATR();
   if (markersPrim) markersPrim.setMarkers(d.markers || []);
   fitChart();
   $("cSym").textContent = d.symbol.replace(".NS", "");
