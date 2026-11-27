@@ -58,7 +58,7 @@ function renderState(el, o, retryFn) {
 let chart, candle, vol, l9, l21, l50, markersPrim, chartReady = false;
 let currentSym = null, currentTf = getSettings().defaultTf, lastCandle = null, emaAt = {}, lastStockData = null;
 const lastv = (a) => (a && a.length ? a[a.length - 1].value : null);
-const PAGE_TITLES = { dashboard: "Dashboard", search: "Search", watchlist: "Watchlist", screeners: "Screeners", alerts: "Alerts", reports: "Reports", journal: "Journal", compare: "Compare" };
+const PAGE_TITLES = { home: "Markets", dashboard: "Portfolio", search: "Search", watchlist: "Watchlist", screeners: "Screener", alerts: "Alerts", reports: "Reports", journal: "Journal", compare: "Compare" };
 function showPage(name) {
   document.querySelectorAll(".page").forEach((p) => p.classList.toggle("active", p.id === "page-" + name));
   document.querySelectorAll(".navlink,.side-link").forEach((b) => b.classList.toggle("active", b.dataset.page === name));

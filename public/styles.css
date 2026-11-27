@@ -1,9 +1,12 @@
 :root{
-  --bg:#080B12; --surface:#101722; --surface2:#17202e; --line:#202C3D;
+  --bg:#080B12; --surface:#101722; --surface2:#17202e; --line:#202C3D; --line-soft:#1a2432;
   --txt:#e8edf4; --dim:#8a93a6; --faint:#6b7589;
   --accent:#2563EB; --accent2:#1d4ed8; --accent-rgb:37,99,235;
   --buy:#10B981; --sell:#EF4444; --hold:#2563EB; --wait:#6b7280; --warn:#F59E0B;
   --radius:14px; --shadow:0 1px 0 rgba(255,255,255,.015),0 6px 20px rgba(0,0,0,.28);
+  /* design-system scale (Phase 1): use these going forward for spacing + radii */
+  --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s5:24px; --s6:32px;
+  --r-sm:8px; --r-md:11px; --r-lg:14px;
 }
 *{box-sizing:border-box}
 html,body{margin:0;min-height:100%;background:var(--bg);color:var(--txt);
@@ -21,9 +24,12 @@ button{font-family:inherit}
 .side-logo{width:30px;height:30px;color:var(--accent);display:grid;place-items:center;
   background:rgba(var(--accent-rgb),.1);border:1px solid rgba(var(--accent-rgb),.32);border-radius:9px}
 .side-logo svg{width:19px;height:19px}
-.side-nav{display:flex;flex-direction:column;gap:3px}
+.side-nav{display:flex;flex-direction:column;gap:2px}
+.nav-group{font-size:10px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--faint);
+  padding:14px 12px 5px;user-select:none}
+.nav-group:first-child{padding-top:4px}
 .side-link{display:flex;align-items:center;gap:12px;background:transparent;border:0;color:var(--dim);
-  padding:10px 12px;border-radius:11px;font-weight:600;font-size:14px;cursor:pointer;transition:.15s;text-align:left}
+  padding:9px 12px;border-radius:10px;font-weight:600;font-size:13.5px;cursor:pointer;transition:.15s;text-align:left}
 .side-link svg{width:19px;height:19px;flex:none}
 .side-link:hover{color:var(--txt);background:var(--surface)}
 .side-link.active{color:#fff;background:rgba(var(--accent-rgb),.14);box-shadow:inset 0 0 0 1px rgba(var(--accent-rgb),.28)}
@@ -768,7 +774,7 @@ button{font-family:inherit}
 }
 @media(max-width:760px){
   .app{grid-template-columns:62px 1fr}
-  .side-name,.side-link span,.market,.side-tag,.side-profile .pf-n,.side-profile .pf-ch{display:none}
+  .side-name,.side-link span,.market,.side-tag,.side-profile .pf-n,.side-profile .pf-ch,.nav-group{display:none}
   .side-brand{justify-content:center;padding:8px 0 14px}
   .side-link{justify-content:center;padding:11px 0}
   .side-profile{justify-content:center;padding:14px 0 2px}
@@ -778,13 +784,22 @@ button{font-family:inherit}
 }
 @media(max-width:1040px){
   .detail{grid-template-columns:1fr}
+  .marketcard{flex-wrap:wrap;gap:16px}
+  /* tablet zone: keep the full 240px sidebar but tighten the top bar so it fits the narrower main column */
+  .topclock{display:none}
+  .delaybadge .db-txt{display:none}
+  .delaybadge{padding:6px}
+  .mkt-pill #mktPillTxt{display:none}
+  .mkt-pill{padding:7px 9px}
+  .topsearch{max-width:220px}
+  .topbar{gap:10px;padding:11px 16px}
 }
 /* phone */
 @media(max-width:560px){
   .app{grid-template-columns:1fr}
   .sidebar{position:fixed;left:0;right:0;bottom:0;top:auto;height:auto;flex-direction:row;gap:2px;
     padding:6px 8px;border-right:0;border-top:1px solid var(--line);z-index:60}
-  .side-brand,.market,.side-profile{display:none}
+  .side-brand,.market,.side-profile,.nav-group{display:none}
   .side-nav{flex-direction:row;flex:1;justify-content:space-around;gap:2px}
   .side-link{flex-direction:column;gap:3px;font-size:10px;padding:6px 4px;flex:1;text-align:center}
   .side-link span{display:block}

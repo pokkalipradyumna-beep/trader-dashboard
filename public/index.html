@@ -20,13 +20,16 @@
         <div class="side-bt"><span class="side-name">Trader</span><span class="side-tag">Scan • Analyse • Track</span></div>
       </div>
       <nav class="side-nav">
-        <button class="side-link active" data-page="home"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg><span>Home</span></button>
-        <button class="side-link" data-page="dashboard"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg><span>Dashboard</span></button>
-        <button class="side-link" data-page="journal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 3v18"/><path d="M12.5 8h3.5M12.5 12h3.5"/></svg><span>Journal</span></button>
+        <div class="nav-group">Discover</div>
+        <button class="side-link active" data-page="home"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg><span>Markets</span></button>
+        <button class="side-link" data-page="screeners"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 3 8l9 5 9-5-9-5z"/><path d="M3 13l9 5 9-5"/></svg><span>Screener</span></button>
         <button class="side-link" data-page="watchlist"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12v18l-6-4-6 4V3z"/></svg><span>Watchlist</span></button>
-        <button class="side-link" data-page="screeners"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 3 8l9 5 9-5-9-5z"/><path d="M3 13l9 5 9-5"/></svg><span>Screeners</span></button>
         <button class="side-link" data-page="compare"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V6M4 6l4-3 8 3 4-3v14l-4 3-8-3-4 3"/><path d="M8 3v14M16 6v14"/></svg><span>Compare</span></button>
+        <div class="nav-group">Manage</div>
+        <button class="side-link" data-page="dashboard"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"/><path d="M5 21V8l5-4 5 4"/><path d="M15 21V12l4-2v11"/></svg><span>Portfolio</span></button>
         <button class="side-link" data-page="alerts"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9a6 6 0 1 1 12 0c0 5 2 6 2 6H4s2-1 2-6z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg><span>Alerts</span></button>
+        <div class="nav-group">Track</div>
+        <button class="side-link" data-page="journal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 3v18"/><path d="M12.5 8h3.5M12.5 12h3.5"/></svg><span>Journal</span></button>
         <button class="side-link" data-page="reports"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3h8l4 4v14H7z"/><path d="M14 3v5h5"/></svg><span>Reports</span></button>
       </nav>
       <button class="side-profile" id="profileBtn" type="button"><span class="pf-av">P</span><span class="pf-n">Profile</span><span class="pf-ch">›</span></button>
@@ -61,8 +64,8 @@
         <section id="page-home" class="page active">
           <div class="pagehead">
             <div>
-              <h1>Home</h1>
-              <p class="sub">Your watchlist and today’s method picks — quality first, timed by the weekly 9/21 &amp; 21/50 crossovers. <span class="liveago"></span></p>
+              <h1>Markets</h1>
+              <p class="sub">Today’s method picks — quality first, timed by the weekly 9/21 &amp; 21/50 crossovers. Browse every stock in Screener. <span class="liveago"></span></p>
             </div>
             <button id="refreshHome" class="btn ghost">↻ Refresh</button>
           </div>
@@ -127,7 +130,7 @@
         <!-- DASHBOARD -->
         <section id="page-dashboard" class="page">
           <div class="pagehead">
-            <div><h1>My Dashboard</h1><p class="sub">Your holdings — and when to exit. <span id="liveDash" class="liveago"></span></p></div>
+            <div><h1>Portfolio</h1><p class="sub">Your holdings — and when to exit. <span id="liveDash" class="liveago"></span></p></div>
             <div class="head-actions"><button id="exportHoldings" class="btn ghost sm">↓ CSV</button><button id="refreshDash" class="btn ghost">↻ Refresh</button></div>
           </div>
           <div id="dashAlert"></div>
@@ -154,7 +157,7 @@
         <!-- SCREENERS -->
         <section id="page-screeners" class="page">
           <div class="pagehead">
-            <div><h1>Screeners</h1><p class="sub">Filter your universe by quality, valuation, confluence and the method signal. <span class="liveago"></span></p></div>
+            <div><h1>Screener</h1><p class="sub">Browse and filter every stock by quality, valuation, confluence and the method signal. <span class="liveago"></span></p></div>
           </div>
           <div id="screenBody"><div class="empty">Coming in this redesign.</div></div>
         </section>
