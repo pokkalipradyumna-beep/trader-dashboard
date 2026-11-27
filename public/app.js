@@ -135,6 +135,11 @@ let stochCfg = { on: false, period: 14, smooth: 3 }, cciCfg = { on: false, perio
   vwapCfg = { on: false }, avwapCfg = { on: false, back: 60 }, vpCfg = { on: false, period: 120, bins: 24 };
 let stochSeries = null, stochPane = null, cciSeries = null, cciPane = null, obvSeries = null, obvPane = null,
   vwapSeries = null, avwapSeries = null, vpLines = [];
+// Phase 4 configs + refs (Support/Resistance price-line overlays)
+let pivotCfg = { on: false }, fibCfg = { on: false, period: 120 }, srCfg = { on: false, period: 120, strength: 3 };
+let pivotLines = [], fibLines = [], srLines = [];
+let taCfg = (() => { try { const s = localStorage.getItem("taCfg"); if (s) return JSON.parse(s); } catch (e) {} return { on: false }; })();
+function saveTaCfg() { try { localStorage.setItem("taCfg", JSON.stringify(taCfg)); } catch (e) {} }
 
 // Registry: drives the settings panel + documents category/placement/params.
 const IND_REGISTRY = [
@@ -160,27 +165,33 @@ const IND_REGISTRY = [
   { id: "vwap", cat: "Volume", place: "overlay", label: "VWAP", swatch: "#facc15", params: [], note: "Cumulative VWAP from the start of the loaded data. True session VWAP is intraday-only (needs real-time data this app doesn't have)." },
   { id: "avwap", cat: "Volume", place: "overlay", label: "Anchored VWAP", swatch: "#fb923c", params: [{ k: "back", lbl: "bars", min: 5, max: 500 }], note: "Cumulative VWAP anchored N bars back." },
   { id: "vprofile", cat: "Volume", place: "overlay", label: "Volume Profile", swatch: "#94a3b8", params: [{ k: "period", lbl: "look", min: 20, max: 500 }, { k: "bins", lbl: "bins", min: 6, max: 60 }], note: "Approximate — POC + value area (VAH/VAL) from candle volume, not tick data." },
+  { id: "pivot", cat: "Support/Resistance", place: "overlay", label: "Pivot Points", swatch: "#e2e8f0", params: [], note: "Classic floor pivots (P + R1–R3 / S1–S3) from the previous period's range." },
+  { id: "fib", cat: "Support/Resistance", place: "overlay", label: "Fibonacci", swatch: "#eab358", params: [{ k: "period", lbl: "look", min: 20, max: 500 }], note: "Retracement levels between the swing high and low over the lookback." },
+  { id: "sr", cat: "Support/Resistance", place: "overlay", label: "Auto S/R zones", swatch: "#94a3b8", params: [{ k: "period", lbl: "look", min: 20, max: 500 }, { k: "strength", lbl: "str", min: 1, max: 10 }], note: "Automatic support/resistance from recent swing highs & lows." },
 ];
-const IND_CATS = ["Trend", "Momentum", "Volatility", "Volume"];
+const IND_CATS = ["Trend", "Momentum", "Volatility", "Volume", "Support/Resistance"];
 // Live-cfg accessors (getters, because profile-switch REASSIGNS these vars).
 const LIVECFG = { ema: () => emaConfig, st: () => stCfg, rsi: () => rsiCfg, macd: () => macdCfg, bb: () => bbCfg, volume: () => volCfg,
   sma: () => smaCfg, don: () => donCfg, ichi: () => ichiCfg, kel: () => kelCfg, adx: () => adxCfg, atr: () => atrCfg,
-  stoch: () => stochCfg, cci: () => cciCfg, obv: () => obvCfg, vwap: () => vwapCfg, avwap: () => avwapCfg, vprofile: () => vpCfg };
+  stoch: () => stochCfg, cci: () => cciCfg, obv: () => obvCfg, vwap: () => vwapCfg, avwap: () => avwapCfg, vprofile: () => vpCfg,
+  pivot: () => pivotCfg, fib: () => fibCfg, sr: () => srCfg };
 const SAVECFG = { ema: saveEmaCfg, st: saveStCfg, rsi: saveRsiCfg, macd: saveMacdCfg, bb: saveBbCfg, volume: () => {},
   sma: () => {}, don: () => {}, ichi: () => {}, kel: () => {}, adx: () => {}, atr: () => {},
-  stoch: () => {}, cci: () => {}, obv: () => {}, vwap: () => {}, avwap: () => {}, vprofile: () => {} };
+  stoch: () => {}, cci: () => {}, obv: () => {}, vwap: () => {}, avwap: () => {}, vprofile: () => {},
+  pivot: () => {}, fib: () => {}, sr: () => {} };
 const APPLYCFG = { ema: () => applyEMAs(), st: () => applySupertrend(), rsi: () => applyRSI(), macd: () => applyMACD(), bb: () => applyBollinger(), volume: () => applyVolume(),
   sma: () => applySMA(), don: () => applyDonchian(), ichi: () => applyIchimoku(), kel: () => applyKeltner(), adx: () => applyADX(), atr: () => applyATR(),
-  stoch: () => applyStochRSI(), cci: () => applyCCI(), obv: () => applyOBV(), vwap: () => applyVWAP(), avwap: () => applyAnchoredVWAP(), vprofile: () => applyVolumeProfile() };
+  stoch: () => applyStochRSI(), cci: () => applyCCI(), obv: () => applyOBV(), vwap: () => applyVWAP(), avwap: () => applyAnchoredVWAP(), vprofile: () => applyVolumeProfile(),
+  pivot: () => applyPivots(), fib: () => applyFib(), sr: () => applyAutoSR() };
 const _clone = (o) => JSON.parse(JSON.stringify(o));
 
 // Built-in style profiles. EMA display periods differ per style, but the SIGNAL
 // is always the server-side weekly 9/21·21/50 — unaffected by what's displayed.
 const IND_BUILTINS = {
-  intraday: { name: "Intraday", cfg: { ema: [{ on: true, period: 9 }, { on: true, period: 21 }, { on: false, period: 50 }], rsi: { on: true, period: 14 }, macd: { on: true, fast: 12, slow: 26, signal: 9 }, bb: { on: false, period: 20, mult: 2 }, st: { on: true, period: 10, mult: 3 }, volume: { on: true }, sma: { on: false, period: 50 }, don: { on: false, period: 20 }, ichi: { on: false, conv: 9, base: 26, span: 52 }, kel: { on: false, period: 20, mult: 2 }, adx: { on: false, period: 14 }, atr: { on: false, period: 14 }, stoch: { on: false, period: 14, smooth: 3 }, cci: { on: false, period: 20 }, obv: { on: false }, vwap: { on: false }, avwap: { on: false, back: 60 }, vprofile: { on: false, period: 120, bins: 24 } } },
-  short: { name: "Short-term", cfg: { ema: [{ on: true, period: 9 }, { on: true, period: 21 }, { on: true, period: 50 }], rsi: { on: true, period: 14 }, macd: { on: true, fast: 12, slow: 26, signal: 9 }, bb: { on: false, period: 20, mult: 2 }, st: { on: false, period: 10, mult: 3 }, volume: { on: true }, sma: { on: false, period: 50 }, don: { on: false, period: 20 }, ichi: { on: false, conv: 9, base: 26, span: 52 }, kel: { on: false, period: 20, mult: 2 }, adx: { on: false, period: 14 }, atr: { on: false, period: 14 }, stoch: { on: false, period: 14, smooth: 3 }, cci: { on: false, period: 20 }, obv: { on: false }, vwap: { on: false }, avwap: { on: false, back: 60 }, vprofile: { on: false, period: 120, bins: 24 } } },
-  swing: { name: "Swing trading", cfg: { ema: [{ on: true, period: 9 }, { on: true, period: 21 }, { on: true, period: 50 }], rsi: { on: true, period: 14 }, macd: { on: true, fast: 12, slow: 26, signal: 9 }, bb: { on: true, period: 20, mult: 2 }, st: { on: true, period: 10, mult: 3 }, volume: { on: true }, sma: { on: false, period: 50 }, don: { on: false, period: 20 }, ichi: { on: false, conv: 9, base: 26, span: 52 }, kel: { on: false, period: 20, mult: 2 }, adx: { on: false, period: 14 }, atr: { on: false, period: 14 }, stoch: { on: false, period: 14, smooth: 3 }, cci: { on: false, period: 20 }, obv: { on: false }, vwap: { on: false }, avwap: { on: false, back: 60 }, vprofile: { on: false, period: 120, bins: 24 } } },
-  long: { name: "Long-term", cfg: { ema: [{ on: true, period: 50 }, { on: true, period: 100 }, { on: true, period: 200 }], rsi: { on: false, period: 14 }, macd: { on: false, fast: 12, slow: 26, signal: 9 }, bb: { on: false, period: 20, mult: 2 }, st: { on: false, period: 10, mult: 3 }, volume: { on: true }, sma: { on: false, period: 50 }, don: { on: false, period: 20 }, ichi: { on: false, conv: 9, base: 26, span: 52 }, kel: { on: false, period: 20, mult: 2 }, adx: { on: false, period: 14 }, atr: { on: false, period: 14 }, stoch: { on: false, period: 14, smooth: 3 }, cci: { on: false, period: 20 }, obv: { on: false }, vwap: { on: false }, avwap: { on: false, back: 60 }, vprofile: { on: false, period: 120, bins: 24 } } },
+  intraday: { name: "Intraday", cfg: { ema: [{ on: true, period: 9 }, { on: true, period: 21 }, { on: false, period: 50 }], rsi: { on: true, period: 14 }, macd: { on: true, fast: 12, slow: 26, signal: 9 }, bb: { on: false, period: 20, mult: 2 }, st: { on: true, period: 10, mult: 3 }, volume: { on: true }, sma: { on: false, period: 50 }, don: { on: false, period: 20 }, ichi: { on: false, conv: 9, base: 26, span: 52 }, kel: { on: false, period: 20, mult: 2 }, adx: { on: false, period: 14 }, atr: { on: false, period: 14 }, stoch: { on: false, period: 14, smooth: 3 }, cci: { on: false, period: 20 }, obv: { on: false }, vwap: { on: false }, avwap: { on: false, back: 60 }, vprofile: { on: false, period: 120, bins: 24 }, pivot: { on: false }, fib: { on: false, period: 120 }, sr: { on: false, period: 120, strength: 3 } } },
+  short: { name: "Short-term", cfg: { ema: [{ on: true, period: 9 }, { on: true, period: 21 }, { on: true, period: 50 }], rsi: { on: true, period: 14 }, macd: { on: true, fast: 12, slow: 26, signal: 9 }, bb: { on: false, period: 20, mult: 2 }, st: { on: false, period: 10, mult: 3 }, volume: { on: true }, sma: { on: false, period: 50 }, don: { on: false, period: 20 }, ichi: { on: false, conv: 9, base: 26, span: 52 }, kel: { on: false, period: 20, mult: 2 }, adx: { on: false, period: 14 }, atr: { on: false, period: 14 }, stoch: { on: false, period: 14, smooth: 3 }, cci: { on: false, period: 20 }, obv: { on: false }, vwap: { on: false }, avwap: { on: false, back: 60 }, vprofile: { on: false, period: 120, bins: 24 }, pivot: { on: false }, fib: { on: false, period: 120 }, sr: { on: false, period: 120, strength: 3 } } },
+  swing: { name: "Swing trading", cfg: { ema: [{ on: true, period: 9 }, { on: true, period: 21 }, { on: true, period: 50 }], rsi: { on: true, period: 14 }, macd: { on: true, fast: 12, slow: 26, signal: 9 }, bb: { on: true, period: 20, mult: 2 }, st: { on: true, period: 10, mult: 3 }, volume: { on: true }, sma: { on: false, period: 50 }, don: { on: false, period: 20 }, ichi: { on: false, conv: 9, base: 26, span: 52 }, kel: { on: false, period: 20, mult: 2 }, adx: { on: false, period: 14 }, atr: { on: false, period: 14 }, stoch: { on: false, period: 14, smooth: 3 }, cci: { on: false, period: 20 }, obv: { on: false }, vwap: { on: false }, avwap: { on: false, back: 60 }, vprofile: { on: false, period: 120, bins: 24 }, pivot: { on: false }, fib: { on: false, period: 120 }, sr: { on: false, period: 120, strength: 3 } } },
+  long: { name: "Long-term", cfg: { ema: [{ on: true, period: 50 }, { on: true, period: 100 }, { on: true, period: 200 }], rsi: { on: false, period: 14 }, macd: { on: false, fast: 12, slow: 26, signal: 9 }, bb: { on: false, period: 20, mult: 2 }, st: { on: false, period: 10, mult: 3 }, volume: { on: true }, sma: { on: false, period: 50 }, don: { on: false, period: 20 }, ichi: { on: false, conv: 9, base: 26, span: 52 }, kel: { on: false, period: 20, mult: 2 }, adx: { on: false, period: 14 }, atr: { on: false, period: 14 }, stoch: { on: false, period: 14, smooth: 3 }, cci: { on: false, period: 20 }, obv: { on: false }, vwap: { on: false }, avwap: { on: false, back: 60 }, vprofile: { on: false, period: 120, bins: 24 }, pivot: { on: false }, fib: { on: false, period: 120 }, sr: { on: false, period: 120, strength: 3 } } },
 };
 const IND_BUILTIN_IDS = ["intraday", "short", "swing", "long"];
 
@@ -188,14 +199,15 @@ function _cfgFromLive() {
   return { ema: emaConfig.map((e) => ({ on: !!e.on, period: e.period })),
     rsi: _clone(rsiCfg), macd: _clone(macdCfg), bb: _clone(bbCfg), st: _clone(stCfg), volume: _clone(volCfg),
     sma: _clone(smaCfg), don: _clone(donCfg), ichi: _clone(ichiCfg), kel: _clone(kelCfg), adx: _clone(adxCfg), atr: _clone(atrCfg),
-    stoch: _clone(stochCfg), cci: _clone(cciCfg), obv: _clone(obvCfg), vwap: _clone(vwapCfg), avwap: _clone(avwapCfg), vprofile: _clone(vpCfg) };
+    stoch: _clone(stochCfg), cci: _clone(cciCfg), obv: _clone(obvCfg), vwap: _clone(vwapCfg), avwap: _clone(avwapCfg), vprofile: _clone(vpCfg),
+    pivot: _clone(pivotCfg), fib: _clone(fibCfg), sr: _clone(srCfg) };
 }
 function _mergeCfg(cfg) {
   const base = _clone(IND_BUILTINS.short.cfg);
   if (!cfg) return base;
   const out = _clone(base);
   if (Array.isArray(cfg.ema)) out.ema = cfg.ema.slice(0, 3).map((e, i) => ({ on: !!(e && e.on), period: (e && e.period) || base.ema[i].period }));
-  ["rsi", "macd", "bb", "st", "volume", "sma", "don", "ichi", "kel", "adx", "atr", "stoch", "cci", "obv", "vwap", "avwap", "vprofile"].forEach((k) => { if (cfg[k]) out[k] = Object.assign({}, base[k], cfg[k]); });
+  ["rsi", "macd", "bb", "st", "volume", "sma", "don", "ichi", "kel", "adx", "atr", "stoch", "cci", "obv", "vwap", "avwap", "vprofile", "pivot", "fib", "sr"].forEach((k) => { if (cfg[k]) out[k] = Object.assign({}, base[k], cfg[k]); });
   return out;
 }
 function _liveFromCfg(cfg) {
@@ -204,6 +216,7 @@ function _liveFromCfg(cfg) {
   rsiCfg = _clone(c.rsi); macdCfg = _clone(c.macd); bbCfg = _clone(c.bb); stCfg = _clone(c.st); volCfg = _clone(c.volume);
   smaCfg = _clone(c.sma); donCfg = _clone(c.don); ichiCfg = _clone(c.ichi); kelCfg = _clone(c.kel); adxCfg = _clone(c.adx); atrCfg = _clone(c.atr);
   stochCfg = _clone(c.stoch); cciCfg = _clone(c.cci); obvCfg = _clone(c.obv); vwapCfg = _clone(c.vwap); avwapCfg = _clone(c.avwap); vpCfg = _clone(c.vprofile);
+  pivotCfg = _clone(c.pivot); fibCfg = _clone(c.fib); srCfg = _clone(c.sr);
   saveEmaCfg(); saveRsiCfg(); saveMacdCfg(); saveBbCfg(); saveStCfg(); // keep legacy keys synced for other readers
 }
 function _applyActiveToChart() {
@@ -211,6 +224,7 @@ function _applyActiveToChart() {
   applyEMAs(); applyRSI(); applyMACD(); applyBollinger(); applySupertrend(); applyVolume();
   applySMA(); applyDonchian(); applyIchimoku(); applyKeltner(); applyADX(); applyATR();
   applyStochRSI(); applyCCI(); applyOBV(); applyVWAP(); applyAnchoredVWAP(); applyVolumeProfile();
+  applyPivots(); applyFib(); applyAutoSR(); renderTASummary();
   setTimeout(fitChart, 40);
 }
 
@@ -420,6 +434,115 @@ function applyVolumeProfile() {
       add(vp.poc, "#94a3b8", "POC"); add(vp.vah, "#64748b", "VAH"); add(vp.val, "#64748b", "VAL");
     }
   }
+}
+/* ---- Phase 4 draw functions (S/R price lines on the candle series) ---- */
+function _clearLines(arr) { arr.forEach((pl) => { try { candle.removePriceLine(pl); } catch (e) {} }); return []; }
+function applyPivots() {
+  const LC = LightweightCharts;
+  pivotLines = _clearLines(pivotLines);
+  if (pivotCfg.on && chart && candle) {
+    const p = computePivots(currentCandles);
+    if (p) {
+      const add = (price, color, title, w) => pivotLines.push(candle.createPriceLine({ price: Math.round(price * 100) / 100, color, lineStyle: LC.LineStyle.Dashed, lineWidth: w || 1, axisLabelVisible: true, title }));
+      add(p.P, "#e2e8f0", "P", 2);
+      add(p.R1, "#f0444488", "R1"); add(p.R2, "#f0444488", "R2"); add(p.R3, "#f0444455", "R3");
+      add(p.S1, "#15b87088", "S1"); add(p.S2, "#15b87088", "S2"); add(p.S3, "#15b87055", "S3");
+    }
+  }
+}
+function applyFib() {
+  const LC = LightweightCharts;
+  fibLines = _clearLines(fibLines);
+  if (fibCfg.on && chart && candle) {
+    const f = computeFib(currentCandles, fibCfg.period);
+    if (f) f.forEach((lv) => fibLines.push(candle.createPriceLine({ price: Math.round(lv.price * 100) / 100, color: "#eab35877", lineStyle: LC.LineStyle.Dashed, lineWidth: (lv.r === 0 || lv.r === 1) ? 2 : 1, axisLabelVisible: true, title: (lv.r * 100).toFixed(1).replace(/\.0$/, "") + "%" })));
+  }
+}
+function applyAutoSR() {
+  const LC = LightweightCharts;
+  srLines = _clearLines(srLines);
+  if (srCfg.on && chart && candle) {
+    const levels = computeAutoSR(currentCandles, srCfg.period, srCfg.strength, 6);
+    levels.forEach((lv) => srLines.push(candle.createPriceLine({ price: Math.round(lv.price * 100) / 100, color: lv.type === "res" ? "#f0444466" : "#15b87066", lineStyle: LC.LineStyle.Dotted, lineWidth: 1, axisLabelVisible: true, title: lv.type === "res" ? "R" : "S" })));
+  }
+}
+/* ---- Phase 4: optional plain-English technical-analysis summary ----
+   Reads the ENABLED indicators and describes what they currently show.
+   Descriptive only — no predictions, no guarantees. Never changes the
+   weekly BUY/SELL verdict (says so explicitly). Respects the display tf. */
+function _enabled(id) { return LIVECFG[id] && LIVECFG[id]().on; }
+function _lastNonNull(arr) { for (let i = arr.length - 1; i >= 0; i--) if (arr[i] != null) return arr[i]; return null; }
+function technicalSummary() {
+  const C = currentCandles, d = lastStockData;
+  if (!C || C.length < 10) return '<div class="note">Not enough data on this timeframe for a summary.</div>';
+  const closes = C.map((c) => c.close), px = closes[closes.length - 1];
+  const tf = { W: "weekly", D: "daily", M: "monthly" }[currentTf] || "selected";
+  const rows = [];
+  const push = (label, text) => { if (text) rows.push(`<div class="ta-row"><span class="ta-k">${label}</span><span class="ta-v">${text}</span></div>`); };
+
+  // ---- Trend direction ----
+  const tparts = [];
+  if (d && d.signal_9_21) tparts.push("weekly 9/21 is " + (d.signal_9_21.regime === "above" ? "<b>up</b>" : "<b>down</b>"));
+  if (d && d.signal_21_50) tparts.push("the 21/50 longer trend is " + (d.signal_21_50.regime === "above" ? "up" : "down"));
+  if (_enabled("ema")) { const e9 = _lastNonNull(computeEMA(closes, emaConfig[0].period)), e21 = _lastNonNull(computeEMA(closes, emaConfig[1].period)); if (e9 != null && e21 != null) tparts.push("on the " + tf + " chart the fast EMA is " + (e9 >= e21 ? "above" : "below") + " the slow EMA"); }
+  if (_enabled("st")) { const s = computeSupertrend(C, stCfg.period, stCfg.mult); const dir = _lastNonNull(s.dir); if (dir != null) tparts.push("Supertrend is " + (dir === 1 ? "green (up)" : "red (down)")); }
+  if (_enabled("adx")) { const a = _lastNonNull(computeADX(C, adxCfg.period).adx); if (a != null) tparts.push("ADX " + Math.round(a) + " — " + (a < 20 ? "weak/!trending" : a < 25 ? "a trend may be building" : a < 40 ? "a healthy trend" : "a strong trend")); }
+  push("Trend", tparts.length ? tparts.join("; ") + "." : "—");
+
+  // ---- Momentum strength ----
+  const mparts = [];
+  if (_enabled("rsi")) { const r = _lastNonNull(computeRSI(closes, rsiCfg.period)); if (r != null) mparts.push("RSI " + Math.round(r) + " (" + (r >= 70 ? "overbought" : r <= 30 ? "oversold" : r >= 55 ? "firm" : r <= 45 ? "soft" : "neutral") + ")"); }
+  if (_enabled("macd")) { const m = computeMACD(closes, macdCfg.fast, macdCfg.slow, macdCfg.signal); const h = _lastNonNull(m.hist); if (h != null) mparts.push("MACD histogram is " + (h >= 0 ? "positive (bullish)" : "negative (bearish)")); }
+  if (_enabled("stoch")) { const k = _lastNonNull(computeStochRSI(closes, stochCfg.period, stochCfg.smooth).k); if (k != null) mparts.push("Stoch RSI " + Math.round(k) + (k >= 80 ? " (overbought)" : k <= 20 ? " (oversold)" : "")); }
+  if (_enabled("cci")) { const c = _lastNonNull(computeCCI(C, cciCfg.period)); if (c != null) mparts.push("CCI " + Math.round(c) + (c > 100 ? " (strong)" : c < -100 ? " (weak)" : "")); }
+  push("Momentum", mparts.length ? mparts.join("; ") + "." : "No momentum indicators selected.");
+
+  // ---- Volume confirmation ----
+  const vparts = [];
+  if (_enabled("obv")) { const o = computeOBV(C); const last = _lastNonNull(o), back = o[Math.max(0, o.length - 11)]; if (last != null && back != null) vparts.push("OBV is " + (last > back ? "rising — volume supports the move" : last < back ? "falling — volume isn't confirming" : "flat")); }
+  if (_enabled("vwap")) { const w = _lastNonNull(computeVWAP(C, 0)); if (w != null) vparts.push("price is " + (px >= w ? "above" : "below") + " the cumulative VWAP"); }
+  if (_enabled("volume") && C.length > 20) { let s = 0; for (let i = C.length - 20; i < C.length; i++) s += (C[i].volume || 0); const avg = s / 20, lastV = C[C.length - 1].volume || 0; vparts.push("the latest bar's volume is " + (lastV > avg * 1.3 ? "above" : lastV < avg * 0.7 ? "below" : "near") + " its 20-bar average"); }
+  push("Volume", vparts.length ? vparts.join("; ") + "." : "No volume indicators selected.");
+
+  // ---- Volatility ----
+  const volparts = [];
+  if (_enabled("atr")) { const a = _lastNonNull(computeATR(C, atrCfg.period)); if (a != null && px) volparts.push("ATR is about " + (a / px * 100).toFixed(1) + "% of price (typical bar range)"); }
+  if (_enabled("bb")) { const b = computeBollinger(closes, bbCfg.period, bbCfg.mult); const u = _lastNonNull(b.up), l = _lastNonNull(b.lo), m = _lastNonNull(b.mid); if (u != null && l != null && m) volparts.push("Bollinger bands are " + ((u - l) / m * 100).toFixed(1) + "% wide (" + (px >= u ? "price at upper band" : px <= l ? "price at lower band" : "price mid-band") + ")"); }
+  push("Volatility", volparts.length ? volparts.join("; ") + "." : "No volatility indicators selected.");
+
+  // ---- Support & resistance (from selected S/R tools, else recent swings) ----
+  let levels = [];
+  if (_enabled("sr")) levels = computeAutoSR(C, srCfg.period, srCfg.strength, 8).map((l) => l.price);
+  if (_enabled("pivot")) { const p = computePivots(C); if (p) levels.push(p.R1, p.R2, p.S1, p.S2, p.P); }
+  if (_enabled("fib")) { const f = computeFib(C, fibCfg.period); if (f) f.forEach((x) => levels.push(x.price)); }
+  if (_enabled("vprofile")) { const vp = computeVolumeProfile(C, vpCfg.period, vpCfg.bins); if (vp) levels.push(vp.poc, vp.vah, vp.val); }
+  if (!levels.length) levels = computeAutoSR(C, 120, 3, 8).map((l) => l.price); // fallback so this aspect is always covered
+  const res = levels.filter((p) => p > px).sort((a, b) => a - b)[0];
+  const sup = levels.filter((p) => p < px).sort((a, b) => b - a)[0];
+  push("Support / resistance", (sup ? "Nearest support ≈ ₹" + fmt(Math.round(sup * 100) / 100) : "No clear support below") + " · " + (res ? "nearest resistance ≈ ₹" + fmt(Math.round(res * 100) / 100) : "no clear resistance above") + ".");
+
+  // ---- Bullish / bearish signals ----
+  const sigs = [];
+  if (d && d.signal_9_21 && d.signal_9_21.fresh_bull) sigs.push("a fresh weekly 9/21 bullish cross");
+  if (d && d.signal_9_21 && d.signal_9_21.fresh_bear) sigs.push("a fresh weekly 9/21 bearish cross");
+  if (_enabled("macd")) { const m = computeMACD(closes, macdCfg.fast, macdCfg.slow, macdCfg.signal); const n = closes.length - 1; if (m.macd[n] != null && m.signal[n] != null && m.macd[n - 1] != null && m.signal[n - 1] != null) { if (m.macd[n] >= m.signal[n] && m.macd[n - 1] < m.signal[n - 1]) sigs.push("a MACD bullish cross"); if (m.macd[n] < m.signal[n] && m.macd[n - 1] >= m.signal[n - 1]) sigs.push("a MACD bearish cross"); } }
+  push("Signals", sigs.length ? "Recent: " + sigs.join(", ") + "." : "No fresh crossover signals right now.");
+
+  // ---- Entry / exit areas to watch ----
+  const zone = (sup && res)
+    ? "Support near ₹" + fmt(Math.round(sup * 100) / 100) + " is an area some traders watch for lower-risk entries, while a move and hold above ₹" + fmt(Math.round(res * 100) / 100) + " would clear the nearest resistance. These are areas to watch, not instructions."
+    : "Watch how price reacts around the nearest levels above and below.";
+  push("Entry / exit areas", zone);
+
+  return `<div class="ta-list">${rows.join("")}</div>
+    <div class="ta-foot">This describes what your <b>selected indicators</b> currently show on the ${tf} chart — it is <b>not a prediction, a guarantee, or advice</b>, and it never changes your weekly BUY/SELL signal. Data is ~15-min delayed.</div>`;
+}
+function renderTASummary() {
+  const wrap = document.getElementById("taSummaryWrap");
+  if (!wrap) return;
+  if (!taCfg.on) { wrap.innerHTML = ""; return; }
+  wrap.innerHTML = `<section class="d-sec"><h2 class="d-h"><span class="d-num">★</span>Technical analysis summary <span style="color:var(--faint);font-weight:400;font-size:13px">· your selected indicators</span></h2>
+      <div class="ta-box">${technicalSummary()}</div></section>`;
 }
 function computeEMA(closes, period) {
   const out = new Array(closes.length).fill(null);
@@ -656,6 +779,49 @@ function computeVolumeProfile(candles, lookback, bins) {
   }
   return { poc: lo + (poc + 0.5) * binSize, vah: lo + (hiB + 1) * binSize, val: lo + loB * binSize };
 }
+/* ---- Phase 4 math: Support / Resistance ---- */
+function computePivots(candles) {
+  const n = candles.length;
+  if (n < 2) return null;
+  const b = candles[n - 2]; // previous completed period
+  const P = (b.high + b.low + b.close) / 3, rng = b.high - b.low;
+  return { P, R1: 2 * P - b.low, S1: 2 * P - b.high, R2: P + rng, S2: P - rng, R3: b.high + 2 * (P - b.low), S3: b.low - 2 * (b.high - P) };
+}
+function computeFib(candles, lookback) {
+  lookback = lookback || 120;
+  const n = candles.length, start = Math.max(0, n - lookback);
+  let hi = -Infinity, lo = Infinity;
+  for (let i = start; i < n; i++) { if (candles[i].high > hi) hi = candles[i].high; if (candles[i].low < lo) lo = candles[i].low; }
+  if (!(hi > lo)) return null;
+  return [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1].map((r) => ({ r, price: hi - (hi - lo) * r }));
+}
+function computeAutoSR(candles, lookback, strength, max) {
+  lookback = lookback || 120; strength = strength || 3; max = max || 6;
+  const n = candles.length, start = Math.max(strength, n - lookback), levels = [];
+  for (let i = start; i < n - strength; i++) {
+    let isHigh = true, isLow = true;
+    for (let j = i - strength; j <= i + strength; j++) {
+      if (j === i) continue;
+      if (candles[j].high >= candles[i].high) isHigh = false;
+      if (candles[j].low <= candles[i].low) isLow = false;
+    }
+    if (isHigh) levels.push({ price: candles[i].high, type: "res" });
+    if (isLow) levels.push({ price: candles[i].low, type: "sup" });
+  }
+  if (!levels.length) return [];
+  // cluster levels within ~0.5% into one, keep the most recent price
+  const px = candles[n - 1].close, tol = px * 0.006, merged = [];
+  levels.sort((a, b) => a.price - b.price);
+  for (const lv of levels) {
+    const last = merged[merged.length - 1];
+    if (last && Math.abs(lv.price - last.price) <= tol) { last.price = (last.price + lv.price) / 2; }
+    else merged.push({ price: lv.price, type: lv.price >= px ? "res" : "sup" });
+  }
+  // keep the `max` nearest to current price
+  merged.forEach((m) => { m.dist = Math.abs(m.price - px); m.type = m.price >= px ? "res" : "sup"; });
+  merged.sort((a, b) => a.dist - b.dist);
+  return merged.slice(0, max);
+}
 function slots() { return [l9, l21, l50]; }
 
 // Fit all bars across the full chart width. fitContent() can get stuck at the
@@ -828,20 +994,25 @@ function buildIndicatorPanel() {
       else html += _indRow(r);
     });
   });
+  html += `<div class="indsec">Analysis</div>
+    <label class="emarow"><input type="checkbox" class="ta-on" ${taCfg.on ? "checked" : ""}>
+      <span class="emaswatch" style="background:#2563EB"></span><span>Analysis summary</span></label>
+    <div class="ind-note">A plain-English read of your selected indicators, below the chart. Descriptive only — not a prediction or advice.</div>`;
   html += `<div class="emahint">Chart overlays only — your BUY/SELL signals always use the weekly 9/21 &amp; 21/50 method, whatever you display here.</div>`;
   pop.innerHTML = html;
   pop.onchange = (e) => {
     const t = e.target;
     if (t.id === "indProfSel") { switchProfile(t.value); return; }
-    if (t.classList.contains("ind-ema-on")) { const i = +t.dataset.i; emaConfig[i].on = t.checked; saveEmaCfg(); applyEMAs(); _syncActiveFromLive(); setTimeout(fitChart, 40); return; }
-    if (t.classList.contains("ind-ema-p")) { const i = +t.dataset.i; const v = Math.max(1, Math.min(400, parseInt(t.value) || 1)); emaConfig[i].period = v; t.value = v; saveEmaCfg(); applyEMAs(); _syncActiveFromLive(); return; }
-    if (t.classList.contains("ind-on")) { const id = t.dataset.id; LIVECFG[id]().on = t.checked; SAVECFG[id](); APPLYCFG[id](); _syncActiveFromLive(); setTimeout(fitChart, 40); return; }
+    if (t.classList.contains("ta-on")) { taCfg.on = t.checked; saveTaCfg(); renderTASummary(); return; }
+    if (t.classList.contains("ind-ema-on")) { const i = +t.dataset.i; emaConfig[i].on = t.checked; saveEmaCfg(); applyEMAs(); _syncActiveFromLive(); renderTASummary(); setTimeout(fitChart, 40); return; }
+    if (t.classList.contains("ind-ema-p")) { const i = +t.dataset.i; const v = Math.max(1, Math.min(400, parseInt(t.value) || 1)); emaConfig[i].period = v; t.value = v; saveEmaCfg(); applyEMAs(); _syncActiveFromLive(); renderTASummary(); return; }
+    if (t.classList.contains("ind-on")) { const id = t.dataset.id; LIVECFG[id]().on = t.checked; SAVECFG[id](); APPLYCFG[id](); _syncActiveFromLive(); renderTASummary(); setTimeout(fitChart, 40); return; }
     if (t.classList.contains("ind-p")) {
       const id = t.dataset.id, k = t.dataset.k;
       let v = t.dataset.float ? parseFloat(t.value) : parseInt(t.value);
       if (isNaN(v)) v = LIVECFG[id]()[k];
       v = Math.max(+t.min, Math.min(+t.max, v)); t.value = v;
-      LIVECFG[id]()[k] = v; SAVECFG[id](); APPLYCFG[id](); _syncActiveFromLive();
+      LIVECFG[id]()[k] = v; SAVECFG[id](); APPLYCFG[id](); _syncActiveFromLive(); renderTASummary();
     }
   };
   pop.onclick = (e) => {
@@ -956,6 +1127,9 @@ function renderChart(d) {
   applyVWAP();
   applyAnchoredVWAP();
   applyVolumeProfile();
+  applyPivots();
+  applyFib();
+  applyAutoSR();
   if (markersPrim) markersPrim.setMarkers(d.markers || []);
   fitChart();
   $("cSym").textContent = d.symbol.replace(".NS", "");
@@ -1203,6 +1377,7 @@ function renderDetail(d) {
         ${rsiHtml}${macdHtml}</div>
       <div class="block"><h3>Confluence &amp; momentum</h3>${statusStrip(d.signal_9_21, d.signal_21_50)}${confluenceBlock(d.confluence)}</div>
     </div></section>
+    <div id="taSummaryWrap"></div>
     <section class="d-sec"><h2 class="d-h"><span class="d-num">2</span>Trading perspectives — how to trade this</h2>
       <div id="perspectives"><div class="scanhint"><span class="spinner"></span>Analysing across timeframes…</div></div></section>`;
 
@@ -1263,6 +1438,7 @@ function renderDetail(d) {
 
   $("detailPanel").innerHTML = html;
   lastStockData = d;
+  renderTASummary();   // optional plain-English summary (from selected indicators), when enabled
   loadPerspectives(d); // async: fills the Trading-perspectives section (daily + delayed intraday)
   loadNews(d.symbol);  // async: fills the Latest-news section (Google News RSS, facts only)
 }
