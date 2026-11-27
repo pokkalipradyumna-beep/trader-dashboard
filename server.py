@@ -111,6 +111,25 @@ _EXTRA = {
 }
 
 
+_UNIVERSE_CACHE = None
+
+
+def _universe():
+    """Every ticker the app knows (public/symbols.json) with a display name, so the
+    scanner covers the FULL universe — not just the 24 curated fundamentals names.
+    Non-curated names scan chart-and-signal only (quality 'not rated'); nothing is
+    fabricated. Cached in-process (the file is static)."""
+    global _UNIVERSE_CACHE
+    if _UNIVERSE_CACHE is None:
+        try:
+            with open(os.path.join(WEB, "symbols.json"), encoding="utf-8") as fh:
+                _UNIVERSE_CACHE = [(d["t"], d.get("n") or d["t"])
+                                   for d in json.load(fh) if d.get("t")]
+        except Exception:  # noqa: BLE001 — fall back to curated-only if unreadable
+            _UNIVERSE_CACHE = []
+    return _UNIVERSE_CACHE
+
+
 def _intraday(symbol, interval="15m", rng="5d"):
     """Delayed intraday candles for the trading-perspectives feature. SEPARATE from
     the weekly engine: it keeps full unix timestamps (engine.fetch_candles collapses
@@ -449,9 +468,19 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == "/api/scanner":
                 data = quality._load()
                 companies = data.get("companies") or {}
+                seen = set(s.upper() for s in companies)
+                # Curated names (with fundamentals) first, then the penny extras,
+                # then the rest of the known universe — all deduped. Non-curated
+                # names are chart-only (quality 'not rated'); they skip quietly if
+                # delisted/renamed (the True flag = skip-on-error, not "penny").
                 tasks = [(s, f, None, False) for s, f in companies.items()]
-                tasks += [(s, None, nm, True) for s, nm in _EXTRA.items() if s not in companies]
-                rows = _scan_many(tasks)
+                for s, nm in _EXTRA.items():
+                    if s.upper() not in seen:
+                        tasks.append((s, None, nm, True)); seen.add(s.upper())
+                for s, nm in _universe():
+                    if s.upper() not in seen:
+                        tasks.append((s, None, nm, True)); seen.add(s.upper())
+                rows = _scan_many(tasks, workers=16)
                 _vr = {"CHEAP": 0, "FAIR": 1, "EXPENSIVE": 2}
                 rows.sort(key=lambda x: (x.get("rank", 99), _vr.get(x.get("valuation"), 3), x["symbol"]))
                 self._send(200, json.dumps({"as_of": data.get("as_of"), "results": rows}))

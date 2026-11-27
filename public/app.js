@@ -892,10 +892,10 @@ const FILTER_ORDER = ["STRONG BUY", "BUY", "HOLD", "WAIT", "CHART-ONLY", "SELL"]
 function whyText(x) {
   const q = x.quality;
   if (x.penny && !q) {
-    // low-priced / penny: chart-and-signal only, quality not rated (not curated)
-    if (x.category === "STRONG BUY" || x.category === "BUY") return "Buy cross on the chart — <b>quality not rated</b> (penny/low-price, outside the curated universe).";
+    // chart-and-signal only: quality not rated (outside the curated fundamentals set)
+    if (x.category === "STRONG BUY" || x.category === "BUY") return "Buy cross on the chart — <b>quality not rated</b> (outside the curated quality universe).";
     if (x.category === "SELL") return "<b>Exit signal</b> — 9/21 death cross. Quality not rated.";
-    return "No buy signal yet (9/21 below). <b>Quality not rated</b> — penny/low-price.";
+    return "No buy signal yet (9/21 below). <b>Quality not rated</b> — outside the curated quality universe.";
   }
   if (x.category === "STRONG BUY") return "Fresh <b>9/21 buy cross</b>, passes quality, and the <b>21/50 long-term trend is up</b>.";
   if (x.category === "BUY") return "Buy cross with " + (q === "PASS" ? "solid" : "acceptable") + " quality.";
