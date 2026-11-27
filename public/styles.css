@@ -780,7 +780,25 @@ button{font-family:inherit}
 .set-card .setrow:last-child{margin-bottom:0}
 .set-card .seg{max-width:360px}
 .set-card .fsel{min-width:160px}
-@media(max-width:560px){.side-settings{display:none}}
+@media(max-width:560px){.side-settings,.side-coverage{display:none}}
+/* Trader Intelligence — Coverage page (Phase 1) */
+.cov-note{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;font-size:12.5px;color:var(--dim);line-height:1.6;margin-bottom:6px}
+.cov-note .cov-warn{display:block;margin-top:6px;color:var(--warn)}
+.cov-statrow{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:6px}
+.cov-stat{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+.cov-stat.ok{border-color:rgba(16,185,129,.4)}.cov-stat.no{border-color:rgba(239,68,68,.35)}.cov-stat.near{border-color:rgba(245,158,11,.35)}
+.cov-v{font-size:22px;font-weight:700;color:var(--txt)}
+.cov-l{font-size:11.5px;color:var(--dim);margin-top:2px}
+.cov-lim{margin:0 0 6px;padding-left:18px;color:var(--faint);font-size:12px;line-height:1.6}
+.cov-tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:12px}
+.cov-table{width:100%;border-collapse:collapse;font-size:12.5px;min-width:620px}
+.cov-table th{text-align:left;color:var(--faint);font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.04em;padding:10px 12px;border-bottom:1px solid var(--line);white-space:nowrap}
+.cov-table td{padding:10px 12px;border-bottom:1px solid var(--line-soft);color:var(--dim)}
+.cov-table tr:last-child td{border-bottom:0}
+.cov-sym{font-weight:700;color:var(--txt);white-space:nowrap}
+.cov-nm{color:var(--dim);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cov-dim{color:var(--faint)}
+.cov-flag{color:var(--warn)}
 
 /* star toggles */
 .star{font-size:16px}

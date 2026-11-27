@@ -385,6 +385,48 @@ def _intraday_scan():
     return {"illustrative": True, "delayed": True, "as_of": as_of, "results": rows}
 
 
+_SYS_STORE = None
+
+
+def _system_store():
+    """Lazy, read-only handle to the intelligence Store. Guarded so the app
+    never breaks if the intel package / data files aren't present yet."""
+    global _SYS_STORE
+    if _SYS_STORE is None:
+        try:
+            from intel.store import JsonFileStore
+            _SYS_STORE = JsonFileStore()
+        except Exception:  # noqa: BLE001
+            _SYS_STORE = False
+    return _SYS_STORE or None
+
+
+def _system_read(path, qs):
+    """Read-only Trader-Intelligence endpoints (Phase 1). Serve the committed
+    coverage registry; never compute heavy work in the request path."""
+    store = _system_store()
+    if path == "/api/system/universe" or path == "/api/system/overview":
+        uni = store.get_universe() if store else None
+        if not uni:
+            return {"generated": False,
+                    "message": "Coverage scan has not been generated yet. Run the offline scanner (python -m intel.scan_universe).",
+                    "counts": None, "stocks": []}
+        if path == "/api/system/overview":
+            return {"generated": True, "generated_at": uni.get("generated_at"),
+                    "universe_size": uni.get("universe_size"), "source": uni.get("source"),
+                    "provider": uni.get("provider"), "counts": uni.get("counts"),
+                    "limitations": uni.get("limitations")}
+        return uni
+    if path == "/api/system/stock":
+        sym = (qs.get("symbol") or [""])[0]
+        if not sym:
+            return {"error": "missing symbol"}
+        rec = store.get_stock(sym) if store else None
+        return rec or {"symbol": sym, "generated": False,
+                       "message": "No data-quality record yet for this stock."}
+    return {"error": "unknown system endpoint"}
+
+
 class Handler(BaseHTTPRequestHandler):
     def _send(self, code, body, ctype="application/json"):
         b = body.encode("utf-8") if isinstance(body, str) else body
@@ -467,6 +509,9 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if u.path == "/api/intradayscan":
                 self._send(200, json.dumps(_intraday_scan()))
+                return
+            if u.path.startswith("/api/system/"):
+                self._send(200, json.dumps(_system_read(u.path, qs)))
                 return
             if u.path == "/api/scan":
                 syms = [s.strip() for s in (qs.get("symbols") or [""])[0].split(",") if s.strip()]

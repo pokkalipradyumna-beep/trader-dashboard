@@ -58,7 +58,7 @@ function renderState(el, o, retryFn) {
 let chart, candle, vol, l9, l21, l50, markersPrim, chartReady = false;
 let currentSym = null, currentTf = getSettings().defaultTf, lastCandle = null, emaAt = {}, lastStockData = null;
 const lastv = (a) => (a && a.length ? a[a.length - 1].value : null);
-const PAGE_TITLES = { home: "Markets", dashboard: "Portfolio", search: "Search", watchlist: "Watchlist", screeners: "Screener", alerts: "Alerts", reports: "Reports", journal: "Journal", compare: "Compare", settings: "Settings" };
+const PAGE_TITLES = { home: "Markets", dashboard: "Portfolio", search: "Search", watchlist: "Watchlist", screeners: "Screener", alerts: "Alerts", reports: "Reports", journal: "Journal", compare: "Compare", settings: "Settings", coverage: "Coverage" };
 function showPage(name) {
   document.querySelectorAll(".page").forEach((p) => p.classList.toggle("active", p.id === "page-" + name));
   document.querySelectorAll(".navlink,.side-link").forEach((b) => b.classList.toggle("active", b.dataset.page === name));
@@ -74,6 +74,7 @@ function showPage(name) {
   if (name === "journal") loadJournal();
   if (name === "compare") loadCompare();
   if (name === "settings") renderSettingsPage();
+  if (name === "coverage") renderCoveragePage();
   if (name === "search" && chartReady && chart) setTimeout(fitChart, 30);
 }
 document.querySelectorAll(".navlink,.side-link").forEach((b) =>
@@ -1979,7 +1980,7 @@ function renderSettingsPage() {
         <input type="checkbox" id="setAutoJ"${autoJ ? " checked" : ""}></label>
         <div class="sethint">On = a journal entry opens when you add a holding and closes when you remove it. Off = log trades manually only.</div></div></div>
 
-    <div class="sec-h"><span>Data &amp; backup</span></div>
+    <div class="sec-h"><span>Data &amp; backup</span><button class="sec-link" id="setCoverage">Data coverage &amp; quality →</button></div>
     <div class="set-card">
       <div class="setrow">
         <div class="setbtns">
@@ -2003,7 +2004,63 @@ function renderSettingsPage() {
   impBtn.addEventListener("click", () => impFile.click());
   impFile.addEventListener("change", (e) => { const f = e.target.files && e.target.files[0]; if (f) importBackupFile(f); e.target.value = ""; });
   $("setHealth").addEventListener("click", checkDataFeed);
+  const cov = $("setCoverage"); if (cov) cov.addEventListener("click", () => showPage("coverage"));
 }
+
+/* ---------- Trader Intelligence: Data coverage page (Phase 1) ----------
+   Read-only view of the offline scanner's committed coverage registry. Shows the
+   SEPARATE data / optimisation / recommendation statuses; "data available" is
+   never conflated with "fully analysed". Honest about provider + limitations. */
+const COV_DATA = ["AVAILABLE_VALIDATED", "PARTIAL", "AWAITING_INSUFFICIENT", "UNSUPPORTED", "DELISTED"];
+const COV_LBL = { AVAILABLE_VALIDATED: "Validated", PARTIAL: "Partial", AWAITING_INSUFFICIENT: "Awaiting / insufficient", UNSUPPORTED: "Unsupported", DELISTED: "Delisted", NOT_RUN: "Not run", COMPLETED: "Completed", INSUFFICIENT_EVIDENCE: "Insufficient evidence", FAILED: "Failed", NONE: "None", AVAILABLE: "Available" };
+const COV_CLS = { AVAILABLE_VALIDATED: "ok", PARTIAL: "near", AWAITING_INSUFFICIENT: "near", UNSUPPORTED: "no", DELISTED: "no" };
+async function renderCoveragePage() {
+  const body = $("coverageBody");
+  if (!body) return;
+  body.innerHTML = '<div class="scanhint"><span class="spinner"></span>Loading coverage…</div>';
+  let uni;
+  try { uni = await (await fetch("/api/system/universe")).json(); }
+  catch (e) { renderState(body, { icon: "📡", title: "Couldn't load coverage", msg: "Check your connection and try again.", retry: true }, renderCoveragePage); return; }
+  if (!uni || uni.generated === false) {
+    body.innerHTML = stateBox({ icon: "🧭", title: "Coverage scan not generated yet",
+      msg: "The offline data-quality scanner hasn't been run. Once it runs (python -m intel.scan_universe), this page shows each stock's data-availability status." });
+    return;
+  }
+  const c = uni.counts || {}, d = c.data || {}, opt = c.optimization || {}, rec = c.recommendation || {};
+  const stat = (v, l, cls) => `<div class="cov-stat ${cls || ""}"><div class="cov-v">${v}</div><div class="cov-l">${l}</div></div>`;
+  const dataStats = COV_DATA.map((k) => stat(d[k] || 0, COV_LBL[k], COV_CLS[k])).join("");
+  const rows = (uni.stocks || []).slice().sort((a, b) =>
+    COV_DATA.indexOf(a.data_status) - COV_DATA.indexOf(b.data_status) || (a.symbol || "").localeCompare(b.symbol || ""));
+  const dbadge = (s) => `<span class="pill ${COV_CLS[s] || ""}">${COV_LBL[s] || s}</span>`;
+  const when = uni.generated_at ? new Date(uni.generated_at).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "—";
+  body.innerHTML = `
+    <div class="cov-note"><b>${uni.universe_size}</b> stocks · source: ${_esc(uni.source || "")} · provider: ${_esc(uni.provider || "")} · last scan: ${when}.
+      <span class="cov-warn">"Data available" is <b>not</b> "fully analysed" — optimisation and recommendations are separate and not run in this phase.</span></div>
+    <div class="sec-h"><span>Data availability</span></div>
+    <div class="cov-statrow">${dataStats}</div>
+    <div class="sec-h"><span>Optimisation &amp; recommendation</span></div>
+    <div class="cov-statrow">
+      ${stat(opt.NOT_RUN || 0, "Optimisation: not run")}
+      ${stat(opt.COMPLETED || 0, "Optimisation: completed", "ok")}
+      ${stat((rec.AVAILABLE || 0), "Recommendation: available", "ok")}
+      ${stat((rec.NONE || 0), "Recommendation: none")}</div>
+    <div class="sec-h"><span>Known limitations</span></div>
+    <ul class="cov-lim">${(uni.limitations || []).map((x) => `<li>${_esc(x)}</li>`).join("")}</ul>
+    <div class="sec-h"><span>Per-stock status</span><span class="mk-sub">${rows.length} stocks</span></div>
+    <div class="cov-tablewrap"><table class="cov-table">
+      <thead><tr><th>Symbol</th><th>Company</th><th>Data</th><th>Daily bars</th><th>Weekly bars</th><th>Last data</th><th>Optim.</th><th>Rec.</th></tr></thead>
+      <tbody>${rows.map((r) => `<tr>
+        <td class="cov-sym">${_esc((r.symbol || "").replace(/\.(NS|BO)$/i, ""))}</td>
+        <td class="cov-nm">${_esc(r.name || r.symbol)}</td>
+        <td>${dbadge(r.data_status)}${r.scan_ok === false ? ' <span class="cov-flag" title="Last scan had an issue; last good data kept">⚠</span>' : ""}</td>
+        <td>${r.bars_daily || 0}</td><td>${r.bars_weekly || 0}</td>
+        <td>${_esc(r.last_data_date || "—")}</td>
+        <td class="cov-dim">${COV_LBL[r.optimization_status] || r.optimization_status}</td>
+        <td class="cov-dim">${COV_LBL[r.recommendation_status] || r.recommendation_status}</td></tr>`).join("")}</tbody>
+    </table></div>`;
+  setLive();
+}
+if ($("refreshCoverage")) $("refreshCoverage").addEventListener("click", () => withBtnLoading($("refreshCoverage"), "Refreshing…", renderCoveragePage));
 
 /* ---------- Phase 0: backup / restore + data health ---------- */
 // Every piece of your data that lives only in this browser. Export/restore keeps

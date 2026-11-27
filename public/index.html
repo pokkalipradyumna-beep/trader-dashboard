@@ -32,6 +32,7 @@
         <button class="side-link" data-page="journal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 3v18"/><path d="M12.5 8h3.5M12.5 12h3.5"/></svg><span>Journal</span></button>
         <button class="side-link" data-page="reports"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3h8l4 4v14H7z"/><path d="M14 3v5h5"/></svg><span>Reports</span></button>
         <div class="nav-group">System</div>
+        <button class="side-link side-coverage" data-page="coverage"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 14l3-3 3 3 5-6"/></svg><span>Coverage</span></button>
         <button class="side-link side-settings" data-page="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V15z"/></svg><span>Settings</span></button>
       </nav>
       <button class="side-profile" id="profileBtn" type="button"><span class="pf-av">P</span><span class="pf-n">Profile</span><span class="pf-ch">›</span></button>
@@ -212,6 +213,15 @@
             <div><h1>Compare stocks</h1><p class="sub">Put 2–5 stocks side by side — price, the weekly signal, EMAs, quality and valuation.</p></div>
           </div>
           <div id="compareBody"></div>
+        </section>
+
+        <!-- COVERAGE (Trader Intelligence — Phase 1) -->
+        <section id="page-coverage" class="page">
+          <div class="pagehead">
+            <div><h1>Data coverage &amp; quality</h1><p class="sub">Trader Intelligence — data-availability status for the locked ~200-stock universe. <span class="liveago"></span></p></div>
+            <button id="refreshCoverage" class="btn ghost">↻ Refresh</button>
+          </div>
+          <div id="coverageBody"></div>
         </section>
 
         <!-- SETTINGS -->
