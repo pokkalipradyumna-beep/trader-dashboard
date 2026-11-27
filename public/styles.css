@@ -210,6 +210,7 @@ button{font-family:inherit}
 .ind-params{margin-left:auto;display:flex;gap:4px;align-items:center}
 .ind-p{width:48px;background:var(--surface2);border:1px solid var(--line);color:var(--txt);padding:5px 6px;border-radius:7px;outline:none;font-size:12px;text-align:center}
 .ind-p:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.ind-note{font-size:10px;color:var(--faint);line-height:1.4;margin:-2px 2px 4px 23px}
 @media(max-width:640px){
   .emapop{position:fixed;left:50%;right:auto;transform:translateX(-50%);top:64px;width:min(340px,calc(100vw - 24px));max-height:calc(100vh - 96px)}
 }

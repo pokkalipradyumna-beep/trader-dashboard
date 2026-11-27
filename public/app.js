@@ -130,6 +130,11 @@ let smaCfg = { on: false, period: 50 }, donCfg = { on: false, period: 20 },
   adxCfg = { on: false, period: 14 }, atrCfg = { on: false, period: 14 };
 let smaSeries = null, donSeries = null, ichiSeries = null, kelSeries = null,
   adxSeries = null, adxPane = null, atrSeries = null, atrPane = null;
+// Phase 3 configs + refs (Momentum: Stoch RSI, CCI; Volume: OBV, VWAP, Anchored VWAP, Volume Profile)
+let stochCfg = { on: false, period: 14, smooth: 3 }, cciCfg = { on: false, period: 20 }, obvCfg = { on: false },
+  vwapCfg = { on: false }, avwapCfg = { on: false, back: 60 }, vpCfg = { on: false, period: 120, bins: 24 };
+let stochSeries = null, stochPane = null, cciSeries = null, cciPane = null, obvSeries = null, obvPane = null,
+  vwapSeries = null, avwapSeries = null, vpLines = [];
 
 // Registry: drives the settings panel + documents category/placement/params.
 const IND_REGISTRY = [
@@ -149,38 +154,48 @@ const IND_REGISTRY = [
   { id: "adx", cat: "Trend", place: "panel", label: "ADX", swatch: "#eab308", params: [{ k: "period", lbl: "len", min: 2, max: 100 }] },
   { id: "kel", cat: "Volatility", place: "overlay", label: "Keltner", swatch: "#f472b6", params: [{ k: "period", lbl: "len", min: 2, max: 100 }, { k: "mult", lbl: "×", min: 0.5, max: 6, float: true }] },
   { id: "atr", cat: "Volatility", place: "panel", label: "ATR", swatch: "#f59e0b", params: [{ k: "period", lbl: "len", min: 2, max: 100 }] },
+  { id: "stoch", cat: "Momentum", place: "panel", label: "Stoch RSI", swatch: "#c084fc", params: [{ k: "period", lbl: "len", min: 2, max: 100 }, { k: "smooth", lbl: "K/D", min: 1, max: 20 }] },
+  { id: "cci", cat: "Momentum", place: "panel", label: "CCI", swatch: "#f59e0b", params: [{ k: "period", lbl: "len", min: 2, max: 100 }] },
+  { id: "obv", cat: "Volume", place: "panel", label: "OBV", swatch: "#38bdf8", params: [] },
+  { id: "vwap", cat: "Volume", place: "overlay", label: "VWAP", swatch: "#facc15", params: [], note: "Cumulative VWAP from the start of the loaded data. True session VWAP is intraday-only (needs real-time data this app doesn't have)." },
+  { id: "avwap", cat: "Volume", place: "overlay", label: "Anchored VWAP", swatch: "#fb923c", params: [{ k: "back", lbl: "bars", min: 5, max: 500 }], note: "Cumulative VWAP anchored N bars back." },
+  { id: "vprofile", cat: "Volume", place: "overlay", label: "Volume Profile", swatch: "#94a3b8", params: [{ k: "period", lbl: "look", min: 20, max: 500 }, { k: "bins", lbl: "bins", min: 6, max: 60 }], note: "Approximate — POC + value area (VAH/VAL) from candle volume, not tick data." },
 ];
 const IND_CATS = ["Trend", "Momentum", "Volatility", "Volume"];
 // Live-cfg accessors (getters, because profile-switch REASSIGNS these vars).
 const LIVECFG = { ema: () => emaConfig, st: () => stCfg, rsi: () => rsiCfg, macd: () => macdCfg, bb: () => bbCfg, volume: () => volCfg,
-  sma: () => smaCfg, don: () => donCfg, ichi: () => ichiCfg, kel: () => kelCfg, adx: () => adxCfg, atr: () => atrCfg };
+  sma: () => smaCfg, don: () => donCfg, ichi: () => ichiCfg, kel: () => kelCfg, adx: () => adxCfg, atr: () => atrCfg,
+  stoch: () => stochCfg, cci: () => cciCfg, obv: () => obvCfg, vwap: () => vwapCfg, avwap: () => avwapCfg, vprofile: () => vpCfg };
 const SAVECFG = { ema: saveEmaCfg, st: saveStCfg, rsi: saveRsiCfg, macd: saveMacdCfg, bb: saveBbCfg, volume: () => {},
-  sma: () => {}, don: () => {}, ichi: () => {}, kel: () => {}, adx: () => {}, atr: () => {} };
+  sma: () => {}, don: () => {}, ichi: () => {}, kel: () => {}, adx: () => {}, atr: () => {},
+  stoch: () => {}, cci: () => {}, obv: () => {}, vwap: () => {}, avwap: () => {}, vprofile: () => {} };
 const APPLYCFG = { ema: () => applyEMAs(), st: () => applySupertrend(), rsi: () => applyRSI(), macd: () => applyMACD(), bb: () => applyBollinger(), volume: () => applyVolume(),
-  sma: () => applySMA(), don: () => applyDonchian(), ichi: () => applyIchimoku(), kel: () => applyKeltner(), adx: () => applyADX(), atr: () => applyATR() };
+  sma: () => applySMA(), don: () => applyDonchian(), ichi: () => applyIchimoku(), kel: () => applyKeltner(), adx: () => applyADX(), atr: () => applyATR(),
+  stoch: () => applyStochRSI(), cci: () => applyCCI(), obv: () => applyOBV(), vwap: () => applyVWAP(), avwap: () => applyAnchoredVWAP(), vprofile: () => applyVolumeProfile() };
 const _clone = (o) => JSON.parse(JSON.stringify(o));
 
 // Built-in style profiles. EMA display periods differ per style, but the SIGNAL
 // is always the server-side weekly 9/21·21/50 — unaffected by what's displayed.
 const IND_BUILTINS = {
-  intraday: { name: "Intraday", cfg: { ema: [{ on: true, period: 9 }, { on: true, period: 21 }, { on: false, period: 50 }], rsi: { on: true, period: 14 }, macd: { on: true, fast: 12, slow: 26, signal: 9 }, bb: { on: false, period: 20, mult: 2 }, st: { on: true, period: 10, mult: 3 }, volume: { on: true }, sma: { on: false, period: 50 }, don: { on: false, period: 20 }, ichi: { on: false, conv: 9, base: 26, span: 52 }, kel: { on: false, period: 20, mult: 2 }, adx: { on: false, period: 14 }, atr: { on: false, period: 14 } } },
-  short: { name: "Short-term", cfg: { ema: [{ on: true, period: 9 }, { on: true, period: 21 }, { on: true, period: 50 }], rsi: { on: true, period: 14 }, macd: { on: true, fast: 12, slow: 26, signal: 9 }, bb: { on: false, period: 20, mult: 2 }, st: { on: false, period: 10, mult: 3 }, volume: { on: true }, sma: { on: false, period: 50 }, don: { on: false, period: 20 }, ichi: { on: false, conv: 9, base: 26, span: 52 }, kel: { on: false, period: 20, mult: 2 }, adx: { on: false, period: 14 }, atr: { on: false, period: 14 } } },
-  swing: { name: "Swing trading", cfg: { ema: [{ on: true, period: 9 }, { on: true, period: 21 }, { on: true, period: 50 }], rsi: { on: true, period: 14 }, macd: { on: true, fast: 12, slow: 26, signal: 9 }, bb: { on: true, period: 20, mult: 2 }, st: { on: true, period: 10, mult: 3 }, volume: { on: true }, sma: { on: false, period: 50 }, don: { on: false, period: 20 }, ichi: { on: false, conv: 9, base: 26, span: 52 }, kel: { on: false, period: 20, mult: 2 }, adx: { on: false, period: 14 }, atr: { on: false, period: 14 } } },
-  long: { name: "Long-term", cfg: { ema: [{ on: true, period: 50 }, { on: true, period: 100 }, { on: true, period: 200 }], rsi: { on: false, period: 14 }, macd: { on: false, fast: 12, slow: 26, signal: 9 }, bb: { on: false, period: 20, mult: 2 }, st: { on: false, period: 10, mult: 3 }, volume: { on: true }, sma: { on: false, period: 50 }, don: { on: false, period: 20 }, ichi: { on: false, conv: 9, base: 26, span: 52 }, kel: { on: false, period: 20, mult: 2 }, adx: { on: false, period: 14 }, atr: { on: false, period: 14 } } },
+  intraday: { name: "Intraday", cfg: { ema: [{ on: true, period: 9 }, { on: true, period: 21 }, { on: false, period: 50 }], rsi: { on: true, period: 14 }, macd: { on: true, fast: 12, slow: 26, signal: 9 }, bb: { on: false, period: 20, mult: 2 }, st: { on: true, period: 10, mult: 3 }, volume: { on: true }, sma: { on: false, period: 50 }, don: { on: false, period: 20 }, ichi: { on: false, conv: 9, base: 26, span: 52 }, kel: { on: false, period: 20, mult: 2 }, adx: { on: false, period: 14 }, atr: { on: false, period: 14 }, stoch: { on: false, period: 14, smooth: 3 }, cci: { on: false, period: 20 }, obv: { on: false }, vwap: { on: false }, avwap: { on: false, back: 60 }, vprofile: { on: false, period: 120, bins: 24 } } },
+  short: { name: "Short-term", cfg: { ema: [{ on: true, period: 9 }, { on: true, period: 21 }, { on: true, period: 50 }], rsi: { on: true, period: 14 }, macd: { on: true, fast: 12, slow: 26, signal: 9 }, bb: { on: false, period: 20, mult: 2 }, st: { on: false, period: 10, mult: 3 }, volume: { on: true }, sma: { on: false, period: 50 }, don: { on: false, period: 20 }, ichi: { on: false, conv: 9, base: 26, span: 52 }, kel: { on: false, period: 20, mult: 2 }, adx: { on: false, period: 14 }, atr: { on: false, period: 14 }, stoch: { on: false, period: 14, smooth: 3 }, cci: { on: false, period: 20 }, obv: { on: false }, vwap: { on: false }, avwap: { on: false, back: 60 }, vprofile: { on: false, period: 120, bins: 24 } } },
+  swing: { name: "Swing trading", cfg: { ema: [{ on: true, period: 9 }, { on: true, period: 21 }, { on: true, period: 50 }], rsi: { on: true, period: 14 }, macd: { on: true, fast: 12, slow: 26, signal: 9 }, bb: { on: true, period: 20, mult: 2 }, st: { on: true, period: 10, mult: 3 }, volume: { on: true }, sma: { on: false, period: 50 }, don: { on: false, period: 20 }, ichi: { on: false, conv: 9, base: 26, span: 52 }, kel: { on: false, period: 20, mult: 2 }, adx: { on: false, period: 14 }, atr: { on: false, period: 14 }, stoch: { on: false, period: 14, smooth: 3 }, cci: { on: false, period: 20 }, obv: { on: false }, vwap: { on: false }, avwap: { on: false, back: 60 }, vprofile: { on: false, period: 120, bins: 24 } } },
+  long: { name: "Long-term", cfg: { ema: [{ on: true, period: 50 }, { on: true, period: 100 }, { on: true, period: 200 }], rsi: { on: false, period: 14 }, macd: { on: false, fast: 12, slow: 26, signal: 9 }, bb: { on: false, period: 20, mult: 2 }, st: { on: false, period: 10, mult: 3 }, volume: { on: true }, sma: { on: false, period: 50 }, don: { on: false, period: 20 }, ichi: { on: false, conv: 9, base: 26, span: 52 }, kel: { on: false, period: 20, mult: 2 }, adx: { on: false, period: 14 }, atr: { on: false, period: 14 }, stoch: { on: false, period: 14, smooth: 3 }, cci: { on: false, period: 20 }, obv: { on: false }, vwap: { on: false }, avwap: { on: false, back: 60 }, vprofile: { on: false, period: 120, bins: 24 } } },
 };
 const IND_BUILTIN_IDS = ["intraday", "short", "swing", "long"];
 
 function _cfgFromLive() {
   return { ema: emaConfig.map((e) => ({ on: !!e.on, period: e.period })),
     rsi: _clone(rsiCfg), macd: _clone(macdCfg), bb: _clone(bbCfg), st: _clone(stCfg), volume: _clone(volCfg),
-    sma: _clone(smaCfg), don: _clone(donCfg), ichi: _clone(ichiCfg), kel: _clone(kelCfg), adx: _clone(adxCfg), atr: _clone(atrCfg) };
+    sma: _clone(smaCfg), don: _clone(donCfg), ichi: _clone(ichiCfg), kel: _clone(kelCfg), adx: _clone(adxCfg), atr: _clone(atrCfg),
+    stoch: _clone(stochCfg), cci: _clone(cciCfg), obv: _clone(obvCfg), vwap: _clone(vwapCfg), avwap: _clone(avwapCfg), vprofile: _clone(vpCfg) };
 }
 function _mergeCfg(cfg) {
   const base = _clone(IND_BUILTINS.short.cfg);
   if (!cfg) return base;
   const out = _clone(base);
   if (Array.isArray(cfg.ema)) out.ema = cfg.ema.slice(0, 3).map((e, i) => ({ on: !!(e && e.on), period: (e && e.period) || base.ema[i].period }));
-  ["rsi", "macd", "bb", "st", "volume", "sma", "don", "ichi", "kel", "adx", "atr"].forEach((k) => { if (cfg[k]) out[k] = Object.assign({}, base[k], cfg[k]); });
+  ["rsi", "macd", "bb", "st", "volume", "sma", "don", "ichi", "kel", "adx", "atr", "stoch", "cci", "obv", "vwap", "avwap", "vprofile"].forEach((k) => { if (cfg[k]) out[k] = Object.assign({}, base[k], cfg[k]); });
   return out;
 }
 function _liveFromCfg(cfg) {
@@ -188,12 +203,14 @@ function _liveFromCfg(cfg) {
   emaConfig = c.ema.map((e) => ({ on: !!e.on, period: e.period }));
   rsiCfg = _clone(c.rsi); macdCfg = _clone(c.macd); bbCfg = _clone(c.bb); stCfg = _clone(c.st); volCfg = _clone(c.volume);
   smaCfg = _clone(c.sma); donCfg = _clone(c.don); ichiCfg = _clone(c.ichi); kelCfg = _clone(c.kel); adxCfg = _clone(c.adx); atrCfg = _clone(c.atr);
+  stochCfg = _clone(c.stoch); cciCfg = _clone(c.cci); obvCfg = _clone(c.obv); vwapCfg = _clone(c.vwap); avwapCfg = _clone(c.avwap); vpCfg = _clone(c.vprofile);
   saveEmaCfg(); saveRsiCfg(); saveMacdCfg(); saveBbCfg(); saveStCfg(); // keep legacy keys synced for other readers
 }
 function _applyActiveToChart() {
   if (!chart || !chartReady) return;
   applyEMAs(); applyRSI(); applyMACD(); applyBollinger(); applySupertrend(); applyVolume();
   applySMA(); applyDonchian(); applyIchimoku(); applyKeltner(); applyADX(); applyATR();
+  applyStochRSI(); applyCCI(); applyOBV(); applyVWAP(); applyAnchoredVWAP(); applyVolumeProfile();
   setTimeout(fitChart, 40);
 }
 
@@ -325,6 +342,83 @@ function applyATR() {
   } else if (atrSeries) {
     try { chart.removeSeries(atrSeries); } catch (e) {}
     atrSeries = null; if (atrPane) { try { chart.removePane(atrPane.paneIndex()); } catch (e) {} atrPane = null; } restretch();
+  }
+}
+/* ---- Phase 3 draw functions ---- */
+function applyStochRSI() {
+  const LC = LightweightCharts;
+  if (stochCfg.on && chart) {
+    if (!stochSeries) {
+      stochPane = chart.addPane(); const pi = stochPane.paneIndex();
+      stochSeries = {
+        k: chart.addSeries(LC.LineSeries, { color: "#c084fc", lineWidth: 2, priceScaleId: "stoch", priceLineVisible: false, lastValueVisible: true, autoscaleInfoProvider: () => ({ priceRange: { minValue: 0, maxValue: 100 } }) }, pi),
+        d: chart.addSeries(LC.LineSeries, { color: "#f472b6", lineWidth: 1, priceScaleId: "stoch", priceLineVisible: false, lastValueVisible: false }, pi),
+      };
+      [80, 20].forEach((lvl) => stochSeries.k.createPriceLine({ price: lvl, color: lvl === 80 ? "#f0444466" : "#15b87066", lineStyle: LC.LineStyle.Dashed, lineWidth: 1, axisLabelVisible: true, title: String(lvl) }));
+      restretch();
+    }
+    const s = computeStochRSI(currentCandles.map((c) => c.close), stochCfg.period, stochCfg.smooth);
+    const mk = (arr) => currentCandles.map((c, j) => (arr[j] != null ? { time: c.time, value: Math.round(arr[j] * 10) / 10 } : null)).filter(Boolean);
+    stochSeries.k.setData(mk(s.k)); stochSeries.d.setData(mk(s.d));
+  } else if (stochSeries) {
+    [stochSeries.k, stochSeries.d].forEach((s) => { try { chart.removeSeries(s); } catch (e) {} });
+    stochSeries = null; if (stochPane) { try { chart.removePane(stochPane.paneIndex()); } catch (e) {} stochPane = null; } restretch();
+  }
+}
+function applyCCI() {
+  const LC = LightweightCharts;
+  if (cciCfg.on && chart) {
+    if (!cciSeries) {
+      cciPane = chart.addPane();
+      cciSeries = chart.addSeries(LC.LineSeries, { color: "#f59e0b", lineWidth: 2, priceScaleId: "cci", priceLineVisible: false, lastValueVisible: true }, cciPane.paneIndex());
+      [100, 0, -100].forEach((lvl) => cciSeries.createPriceLine({ price: lvl, color: lvl === 0 ? "#ffffff22" : "#ffffff22", lineStyle: LC.LineStyle.Dashed, lineWidth: 1, axisLabelVisible: true, title: String(lvl) }));
+      restretch();
+    }
+    const a = computeCCI(currentCandles, cciCfg.period);
+    cciSeries.setData(currentCandles.map((c, j) => (a[j] != null ? { time: c.time, value: Math.round(a[j] * 10) / 10 } : null)).filter(Boolean));
+  } else if (cciSeries) {
+    try { chart.removeSeries(cciSeries); } catch (e) {}
+    cciSeries = null; if (cciPane) { try { chart.removePane(cciPane.paneIndex()); } catch (e) {} cciPane = null; } restretch();
+  }
+}
+function applyOBV() {
+  const LC = LightweightCharts;
+  if (obvCfg.on && chart) {
+    if (!obvSeries) {
+      obvPane = chart.addPane();
+      obvSeries = chart.addSeries(LC.LineSeries, { color: "#38bdf8", lineWidth: 2, priceScaleId: "obv", priceLineVisible: false, lastValueVisible: true }, obvPane.paneIndex());
+      restretch();
+    }
+    const a = computeOBV(currentCandles);
+    obvSeries.setData(currentCandles.map((c, j) => (a[j] != null ? { time: c.time, value: Math.round(a[j]) } : null)).filter(Boolean));
+  } else if (obvSeries) {
+    try { chart.removeSeries(obvSeries); } catch (e) {}
+    obvSeries = null; if (obvPane) { try { chart.removePane(obvPane.paneIndex()); } catch (e) {} obvPane = null; } restretch();
+  }
+}
+function applyVWAP() {
+  if (vwapCfg.on && chart) {
+    if (!vwapSeries) vwapSeries = _ovLine("#facc15", false, 2);
+    _setLine(vwapSeries, computeVWAP(currentCandles, 0));
+  } else if (vwapSeries) { try { chart.removeSeries(vwapSeries); } catch (e) {} vwapSeries = null; }
+}
+function applyAnchoredVWAP() {
+  if (avwapCfg.on && chart) {
+    if (!avwapSeries) avwapSeries = _ovLine("#fb923c", false, 2);
+    const from = Math.max(0, currentCandles.length - (avwapCfg.back || 60));
+    _setLine(avwapSeries, computeVWAP(currentCandles, from));
+  } else if (avwapSeries) { try { chart.removeSeries(avwapSeries); } catch (e) {} avwapSeries = null; }
+}
+function applyVolumeProfile() {
+  const LC = LightweightCharts;
+  vpLines.forEach((pl) => { try { candle.removePriceLine(pl); } catch (e) {} });
+  vpLines = [];
+  if (vpCfg.on && chart && candle) {
+    const vp = computeVolumeProfile(currentCandles, vpCfg.period, vpCfg.bins);
+    if (vp) {
+      const add = (price, color, title) => vpLines.push(candle.createPriceLine({ price: Math.round(price * 100) / 100, color, lineStyle: LC.LineStyle.Dashed, lineWidth: title === "POC" ? 2 : 1, axisLabelVisible: true, title }));
+      add(vp.poc, "#94a3b8", "POC"); add(vp.vah, "#64748b", "VAH"); add(vp.val, "#64748b", "VAL");
+    }
   }
 }
 function computeEMA(closes, period) {
@@ -485,6 +579,83 @@ function computeIchimoku(candles, conv, base, span) {
   }
   return { tenkan, kijun, spanA, spanB, chikou };
 }
+/* ---- Phase 3 indicator math (Momentum + Volume) ---- */
+function _smaArr(arr, p) { // SMA over p contiguous non-null values
+  const n = arr.length, out = new Array(n).fill(null);
+  for (let i = p - 1; i < n; i++) {
+    let sum = 0, ok = true;
+    for (let j = i - p + 1; j <= i; j++) { if (arr[j] == null) { ok = false; break; } sum += arr[j]; }
+    if (ok) out[i] = sum / p;
+  }
+  return out;
+}
+function computeStochRSI(closes, period, smooth) {
+  period = period || 14; smooth = smooth || 3;
+  const rsi = computeRSI(closes, period), n = closes.length, stoch = new Array(n).fill(null);
+  for (let i = 0; i < n; i++) {
+    if (rsi[i] == null) continue;
+    let lo = Infinity, hi = -Infinity, ok = true;
+    for (let j = i - period + 1; j <= i; j++) { if (j < 0 || rsi[j] == null) { ok = false; break; } if (rsi[j] < lo) lo = rsi[j]; if (rsi[j] > hi) hi = rsi[j]; }
+    if (ok) stoch[i] = hi === lo ? 0 : (rsi[i] - lo) / (hi - lo) * 100;
+  }
+  const k = _smaArr(stoch, smooth), d = _smaArr(k, smooth);
+  return { k, d };
+}
+function computeCCI(candles, period) {
+  period = period || 20;
+  const n = candles.length, out = new Array(n).fill(null), tp = candles.map((c) => (c.high + c.low + c.close) / 3);
+  for (let i = period - 1; i < n; i++) {
+    let sum = 0; for (let j = i - period + 1; j <= i; j++) sum += tp[j];
+    const ma = sum / period;
+    let md = 0; for (let j = i - period + 1; j <= i; j++) md += Math.abs(tp[j] - ma); md /= period;
+    out[i] = md === 0 ? 0 : (tp[i] - ma) / (0.015 * md);
+  }
+  return out;
+}
+function computeOBV(candles) {
+  const n = candles.length, out = new Array(n).fill(null);
+  if (!n) return out;
+  let obv = 0; out[0] = 0;
+  for (let i = 1; i < n; i++) {
+    const v = candles[i].volume || 0;
+    if (candles[i].close > candles[i - 1].close) obv += v;
+    else if (candles[i].close < candles[i - 1].close) obv -= v;
+    out[i] = obv;
+  }
+  return out;
+}
+function computeVWAP(candles, from) {
+  from = from || 0;
+  const n = candles.length, out = new Array(n).fill(null);
+  let cumPV = 0, cumV = 0;
+  for (let i = from; i < n; i++) {
+    const tp = (candles[i].high + candles[i].low + candles[i].close) / 3, v = candles[i].volume || 0;
+    cumPV += tp * v; cumV += v; out[i] = cumV > 0 ? cumPV / cumV : null;
+  }
+  return out;
+}
+function computeVolumeProfile(candles, lookback, bins) {
+  lookback = lookback || 120; bins = Math.max(4, bins || 24);
+  const n = candles.length, start = Math.max(0, n - lookback);
+  let lo = Infinity, hi = -Infinity;
+  for (let i = start; i < n; i++) { if (candles[i].low < lo) lo = candles[i].low; if (candles[i].high > hi) hi = candles[i].high; }
+  if (!(hi > lo)) return null;
+  const binSize = (hi - lo) / bins, vol = new Array(bins).fill(0);
+  for (let i = start; i < n; i++) {
+    const v = candles[i].volume || 0;
+    const b0 = Math.max(0, Math.floor((candles[i].low - lo) / binSize)), b1 = Math.min(bins - 1, Math.floor((candles[i].high - lo) / binSize));
+    const each = v / (b1 - b0 + 1);
+    for (let b = b0; b <= b1; b++) vol[b] += each;
+  }
+  let poc = 0; for (let b = 1; b < bins; b++) if (vol[b] > vol[poc]) poc = b;
+  const total = vol.reduce((a, b) => a + b, 0), target = total * 0.7;
+  let acc = vol[poc], loB = poc, hiB = poc;
+  while (acc < target && (loB > 0 || hiB < bins - 1)) {
+    const belowV = loB > 0 ? vol[loB - 1] : -1, aboveV = hiB < bins - 1 ? vol[hiB + 1] : -1;
+    if (aboveV >= belowV) { hiB++; acc += vol[hiB]; } else { loB--; acc += vol[loB]; }
+  }
+  return { poc: lo + (poc + 0.5) * binSize, vah: lo + (hiB + 1) * binSize, val: lo + loB * binSize };
+}
 function slots() { return [l9, l21, l50]; }
 
 // Fit all bars across the full chart width. fitContent() can get stuck at the
@@ -628,9 +799,10 @@ function _indRow(reg) {
   const live = LIVECFG[reg.id]();
   const params = (reg.params || []).map((p) =>
     `<input type="number" class="ind-p" data-id="${reg.id}" data-k="${p.k}"${p.float ? ' data-float="1" step="0.5"' : ""} min="${p.min}" max="${p.max}" value="${live[p.k]}" title="${p.lbl}" aria-label="${reg.label} ${p.lbl}">`).join("");
+  const note = reg.note ? `<div class="ind-note">${reg.note}</div>` : "";
   return `<label class="emarow"><input type="checkbox" class="ind-on" data-id="${reg.id}" ${live.on ? "checked" : ""}>
       <span class="emaswatch" style="background:${reg.swatch}"></span><span>${reg.label}</span>
-      <span class="ind-params">${params}</span></label>`;
+      <span class="ind-params">${params}</span></label>${note}`;
 }
 function buildIndicatorPanel() {
   const pop = $("emaPop");
@@ -778,6 +950,12 @@ function renderChart(d) {
   applyKeltner();
   applyADX();
   applyATR();
+  applyStochRSI();
+  applyCCI();
+  applyOBV();
+  applyVWAP();
+  applyAnchoredVWAP();
+  applyVolumeProfile();
   if (markersPrim) markersPrim.setMarkers(d.markers || []);
   fitChart();
   $("cSym").textContent = d.symbol.replace(".NS", "");
