@@ -114,6 +114,93 @@ let bbCfg = (() => { try { const s = localStorage.getItem("bbCfg"); if (s) retur
 let stCfg = (() => { try { const s = localStorage.getItem("stCfg"); if (s) return JSON.parse(s); } catch (e) {} return { on: false, period: 10, mult: 3 }; })();
 function saveBbCfg() { try { localStorage.setItem("bbCfg", JSON.stringify(bbCfg)); } catch (e) {} }
 function saveStCfg() { try { localStorage.setItem("stCfg", JSON.stringify(stCfg)); } catch (e) {} }
+
+/* ===================== Indicator profiles (Phase 1) =====================
+   A registry + per-trading-style profile system layered ON TOP of the live
+   cfg vars above (emaConfig/rsiCfg/macdCfg/bbCfg/stCfg + volume). Those stay
+   the single source the chart reads, so every existing apply/legend/detail
+   reader keeps working. Profiles just swap values into them and re-apply.
+   NOTHING here touches the weekly engine or the BUY/SELL signals — these are
+   chart overlays + display only. */
+let volCfg = { on: true };
+function applyVolume() { if (vol) { try { vol.applyOptions({ visible: !!volCfg.on }); } catch (e) {} } }
+
+// Registry: drives the settings panel + documents category/placement/params.
+const IND_REGISTRY = [
+  { id: "ema", cat: "Trend", place: "overlay", kind: "ema" },
+  { id: "st", cat: "Trend", place: "overlay", label: "Supertrend", swatch: "linear-gradient(90deg,#15b870,#f04444)",
+    params: [{ k: "period", lbl: "len", min: 2, max: 100 }, { k: "mult", lbl: "×", min: 1, max: 10, float: true }] },
+  { id: "rsi", cat: "Momentum", place: "panel", label: "RSI", swatch: RSI_COLOR,
+    params: [{ k: "period", lbl: "len", min: 2, max: 100 }] },
+  { id: "macd", cat: "Momentum", place: "panel", label: "MACD", swatch: MACD_COLORS.macd,
+    params: [{ k: "fast", lbl: "fast", min: 2, max: 100 }, { k: "slow", lbl: "slow", min: 3, max: 200 }, { k: "signal", lbl: "sig", min: 1, max: 100 }] },
+  { id: "bb", cat: "Volatility", place: "overlay", label: "Bollinger", swatch: "#94a3b8",
+    params: [{ k: "period", lbl: "len", min: 2, max: 100 }, { k: "mult", lbl: "×", min: 0.5, max: 6, float: true }] },
+  { id: "volume", cat: "Volume", place: "panel", label: "Volume", swatch: "#64748b", params: [] },
+];
+const IND_CATS = ["Trend", "Momentum", "Volatility", "Volume"];
+// Live-cfg accessors (getters, because profile-switch REASSIGNS these vars).
+const LIVECFG = { ema: () => emaConfig, st: () => stCfg, rsi: () => rsiCfg, macd: () => macdCfg, bb: () => bbCfg, volume: () => volCfg };
+const SAVECFG = { ema: saveEmaCfg, st: saveStCfg, rsi: saveRsiCfg, macd: saveMacdCfg, bb: saveBbCfg, volume: () => {} };
+const APPLYCFG = { ema: () => applyEMAs(), st: () => applySupertrend(), rsi: () => applyRSI(), macd: () => applyMACD(), bb: () => applyBollinger(), volume: () => applyVolume() };
+const _clone = (o) => JSON.parse(JSON.stringify(o));
+
+// Built-in style profiles. EMA display periods differ per style, but the SIGNAL
+// is always the server-side weekly 9/21·21/50 — unaffected by what's displayed.
+const IND_BUILTINS = {
+  intraday: { name: "Intraday", cfg: { ema: [{ on: true, period: 9 }, { on: true, period: 21 }, { on: false, period: 50 }], rsi: { on: true, period: 14 }, macd: { on: true, fast: 12, slow: 26, signal: 9 }, bb: { on: false, period: 20, mult: 2 }, st: { on: true, period: 10, mult: 3 }, volume: { on: true } } },
+  short: { name: "Short-term", cfg: { ema: [{ on: true, period: 9 }, { on: true, period: 21 }, { on: true, period: 50 }], rsi: { on: true, period: 14 }, macd: { on: true, fast: 12, slow: 26, signal: 9 }, bb: { on: false, period: 20, mult: 2 }, st: { on: false, period: 10, mult: 3 }, volume: { on: true } } },
+  swing: { name: "Swing trading", cfg: { ema: [{ on: true, period: 9 }, { on: true, period: 21 }, { on: true, period: 50 }], rsi: { on: true, period: 14 }, macd: { on: true, fast: 12, slow: 26, signal: 9 }, bb: { on: true, period: 20, mult: 2 }, st: { on: true, period: 10, mult: 3 }, volume: { on: true } } },
+  long: { name: "Long-term", cfg: { ema: [{ on: true, period: 50 }, { on: true, period: 100 }, { on: true, period: 200 }], rsi: { on: false, period: 14 }, macd: { on: false, fast: 12, slow: 26, signal: 9 }, bb: { on: false, period: 20, mult: 2 }, st: { on: false, period: 10, mult: 3 }, volume: { on: true } } },
+};
+const IND_BUILTIN_IDS = ["intraday", "short", "swing", "long"];
+
+function _cfgFromLive() {
+  return { ema: emaConfig.map((e) => ({ on: !!e.on, period: e.period })),
+    rsi: _clone(rsiCfg), macd: _clone(macdCfg), bb: _clone(bbCfg), st: _clone(stCfg), volume: _clone(volCfg) };
+}
+function _mergeCfg(cfg) {
+  const base = _clone(IND_BUILTINS.short.cfg);
+  if (!cfg) return base;
+  const out = _clone(base);
+  if (Array.isArray(cfg.ema)) out.ema = cfg.ema.slice(0, 3).map((e, i) => ({ on: !!(e && e.on), period: (e && e.period) || base.ema[i].period }));
+  ["rsi", "macd", "bb", "st", "volume"].forEach((k) => { if (cfg[k]) out[k] = Object.assign({}, base[k], cfg[k]); });
+  return out;
+}
+function _liveFromCfg(cfg) {
+  const c = _mergeCfg(cfg);
+  emaConfig = c.ema.map((e) => ({ on: !!e.on, period: e.period }));
+  rsiCfg = _clone(c.rsi); macdCfg = _clone(c.macd); bbCfg = _clone(c.bb); stCfg = _clone(c.st); volCfg = _clone(c.volume);
+  saveEmaCfg(); saveRsiCfg(); saveMacdCfg(); saveBbCfg(); saveStCfg(); // keep legacy keys synced for other readers
+}
+function _applyActiveToChart() {
+  if (!chart || !chartReady) return;
+  applyEMAs(); applyRSI(); applyMACD(); applyBollinger(); applySupertrend(); applyVolume();
+  setTimeout(fitChart, 40);
+}
+
+let INDSTORE = (() => {
+  // Load saved profiles, or MIGRATE: build the 4 built-ins + a "My setup"
+  // profile seeded from the user's CURRENT live settings (lossless) and make
+  // it active, so nothing they've configured changes after this update.
+  try {
+    const s = localStorage.getItem("indProfiles");
+    if (s) { const p = JSON.parse(s); if (p && p.profiles && p.active && p.order) return p; }
+  } catch (e) {}
+  const profiles = {};
+  IND_BUILTIN_IDS.forEach((id) => { profiles[id] = { name: IND_BUILTINS[id].name, builtin: true, cfg: _clone(IND_BUILTINS[id].cfg) }; });
+  profiles.mysetup = { name: "My setup", builtin: false, cfg: _cfgFromLive() };
+  return { active: "mysetup", order: IND_BUILTIN_IDS.concat(["mysetup"]), profiles };
+})();
+function saveIndStore() { try { localStorage.setItem("indProfiles", JSON.stringify(INDSTORE)); } catch (e) {} }
+function _activeProfile() { return INDSTORE.profiles[INDSTORE.active] || INDSTORE.profiles[INDSTORE.order[0]]; }
+function _getActiveCfg() { const p = _activeProfile(); return _mergeCfg(p && p.cfg); }
+function _syncActiveFromLive() { const p = _activeProfile(); if (p) { p.cfg = _cfgFromLive(); saveIndStore(); } }
+
+// At boot: make the live cfg vars reflect the active profile (restores the
+// selected profile across refreshes). No chart needed yet — renderChart applies.
+_liveFromCfg(_getActiveCfg());
+saveIndStore(); // persist the migrated/loaded store immediately (so it survives even if the panel is never opened)
 function applyBollinger() {
   const LC = LightweightCharts;
   if (bbCfg.on && chart) {
@@ -371,49 +458,92 @@ function applyMACD() {
   }
 }
 
-function buildEmaPop() {
-  const emaRows = emaConfig.map((cfg, i) =>
-    `<label class="emarow"><input type="checkbox" class="ema-on" data-i="${i}" ${cfg.on ? "checked" : ""}>
-      <span class="emaswatch" style="background:${EMA_COLORS[i]}"></span><span>EMA</span>
-      <input type="number" class="emaperiod" data-i="${i}" min="1" max="400" value="${cfg.period}"></label>`).join("");
-  const rsiRow = `<div class="indsec">Oscillators</div>
-    <label class="emarow"><input type="checkbox" class="rsi-on" ${rsiCfg.on ? "checked" : ""}>
-      <span class="emaswatch" style="background:${RSI_COLOR}"></span><span>RSI</span>
-      <input type="number" class="rsi-period" min="2" max="100" value="${rsiCfg.period}"></label>
-    <label class="emarow"><input type="checkbox" class="macd-on" ${macdCfg.on ? "checked" : ""}>
-      <span class="emaswatch" style="background:${MACD_COLORS.macd}"></span><span>MACD</span>
-      <span class="macdcfg">${macdCfg.fast}/${macdCfg.slow}/${macdCfg.signal}</span></label>
-    <div class="indsec">Overlays</div>
-    <label class="emarow"><input type="checkbox" class="bb-on" ${bbCfg.on ? "checked" : ""}>
-      <span class="emaswatch" style="background:#94a3b8"></span><span>Bollinger</span>
-      <span class="macdcfg">${bbCfg.period}/${bbCfg.mult}</span></label>
-    <label class="emarow"><input type="checkbox" class="st-on" ${stCfg.on ? "checked" : ""}>
-      <span class="emaswatch" style="background:linear-gradient(90deg,#15b870,#f04444)"></span><span>Supertrend</span>
-      <span class="macdcfg">${stCfg.period}/${stCfg.mult}</span></label>`;
-  $("emaPop").innerHTML = `<div class="indsec" style="margin-top:0">Moving averages</div>` + emaRows + rsiRow
-    + `<div class="emahint">Chart overlays only — signals always use the weekly 9/21 &amp; 21/50.</div>`;
-  $("emaPop").querySelectorAll(".rsi-on").forEach((cb) =>
-    cb.addEventListener("change", () => { rsiCfg.on = cb.checked; saveRsiCfg(); applyRSI(); setTimeout(fitChart, 40); }));
-  $("emaPop").querySelectorAll(".rsi-period").forEach((inp) =>
-    inp.addEventListener("change", () => {
-      const v = Math.max(2, Math.min(100, parseInt(inp.value) || 14));
-      rsiCfg.period = v; inp.value = v; saveRsiCfg(); applyRSI();
-    }));
-  $("emaPop").querySelectorAll(".macd-on").forEach((cb) =>
-    cb.addEventListener("change", () => { macdCfg.on = cb.checked; saveMacdCfg(); applyMACD(); setTimeout(fitChart, 40); }));
-  $("emaPop").querySelectorAll(".bb-on").forEach((cb) =>
-    cb.addEventListener("change", () => { bbCfg.on = cb.checked; saveBbCfg(); applyBollinger(); }));
-  $("emaPop").querySelectorAll(".st-on").forEach((cb) =>
-    cb.addEventListener("change", () => { stCfg.on = cb.checked; saveStCfg(); applySupertrend(); }));
-  $("emaPop").querySelectorAll(".ema-on").forEach((cb) =>
-    cb.addEventListener("change", () => { emaConfig[+cb.dataset.i].on = cb.checked; saveEmaCfg(); applyEMAs(); }));
-  $("emaPop").querySelectorAll(".emaperiod").forEach((inp) =>
-    inp.addEventListener("change", () => {
-      const v = Math.max(1, Math.min(400, parseInt(inp.value) || 1));
-      emaConfig[+inp.dataset.i].period = v; inp.value = v; saveEmaCfg(); applyEMAs();
-    }));
+function _indRow(reg) {
+  const live = LIVECFG[reg.id]();
+  const params = (reg.params || []).map((p) =>
+    `<input type="number" class="ind-p" data-id="${reg.id}" data-k="${p.k}"${p.float ? ' data-float="1" step="0.5"' : ""} min="${p.min}" max="${p.max}" value="${live[p.k]}" title="${p.lbl}" aria-label="${reg.label} ${p.lbl}">`).join("");
+  return `<label class="emarow"><input type="checkbox" class="ind-on" data-id="${reg.id}" ${live.on ? "checked" : ""}>
+      <span class="emaswatch" style="background:${reg.swatch}"></span><span>${reg.label}</span>
+      <span class="ind-params">${params}</span></label>`;
 }
-$("emaBtn").addEventListener("click", (e) => { e.stopPropagation(); buildEmaPop(); $("emaPop").classList.toggle("hidden"); });
+function buildIndicatorPanel() {
+  const pop = $("emaPop");
+  const opts = INDSTORE.order.map((id) => { const p = INDSTORE.profiles[id]; if (!p) return "";
+    return `<option value="${id}" ${id === INDSTORE.active ? "selected" : ""}>${_esc(p.name)}${p.builtin ? "" : " ✎"}</option>`; }).join("");
+  const custom = !(_activeProfile() || {}).builtin;
+  let html = `<div class="indhead">
+      <select id="indProfSel" class="indsel" title="Trading-style profile">${opts}</select>
+      <div class="indbtns">
+        <button id="indNew" class="indbtn" title="Save current settings as a new profile">＋</button>
+        <button id="indReset" class="indbtn" title="Reset this profile to its defaults">⟲</button>
+        ${custom ? '<button id="indDel" class="indbtn" title="Delete this profile">🗑</button>' : ""}
+      </div></div>`;
+  IND_CATS.forEach((cat) => {
+    const regs = IND_REGISTRY.filter((r) => r.cat === cat);
+    if (!regs.length) return;
+    html += `<div class="indsec">${cat}</div>`;
+    regs.forEach((r) => {
+      if (r.kind === "ema") html += emaConfig.map((cfg, i) =>
+        `<label class="emarow"><input type="checkbox" class="ind-ema-on" data-i="${i}" ${cfg.on ? "checked" : ""}>
+          <span class="emaswatch" style="background:${EMA_COLORS[i]}"></span><span>EMA</span>
+          <span class="ind-params"><input type="number" class="ind-ema-p" data-i="${i}" min="1" max="400" value="${cfg.period}" aria-label="EMA period"></span></label>`).join("");
+      else html += _indRow(r);
+    });
+  });
+  html += `<div class="emahint">Chart overlays only — your BUY/SELL signals always use the weekly 9/21 &amp; 21/50 method, whatever you display here.</div>`;
+  pop.innerHTML = html;
+  pop.onchange = (e) => {
+    const t = e.target;
+    if (t.id === "indProfSel") { switchProfile(t.value); return; }
+    if (t.classList.contains("ind-ema-on")) { const i = +t.dataset.i; emaConfig[i].on = t.checked; saveEmaCfg(); applyEMAs(); _syncActiveFromLive(); setTimeout(fitChart, 40); return; }
+    if (t.classList.contains("ind-ema-p")) { const i = +t.dataset.i; const v = Math.max(1, Math.min(400, parseInt(t.value) || 1)); emaConfig[i].period = v; t.value = v; saveEmaCfg(); applyEMAs(); _syncActiveFromLive(); return; }
+    if (t.classList.contains("ind-on")) { const id = t.dataset.id; LIVECFG[id]().on = t.checked; SAVECFG[id](); APPLYCFG[id](); _syncActiveFromLive(); setTimeout(fitChart, 40); return; }
+    if (t.classList.contains("ind-p")) {
+      const id = t.dataset.id, k = t.dataset.k;
+      let v = t.dataset.float ? parseFloat(t.value) : parseInt(t.value);
+      if (isNaN(v)) v = LIVECFG[id]()[k];
+      v = Math.max(+t.min, Math.min(+t.max, v)); t.value = v;
+      LIVECFG[id]()[k] = v; SAVECFG[id](); APPLYCFG[id](); _syncActiveFromLive();
+    }
+  };
+  pop.onclick = (e) => {
+    const b = e.target.closest("button"); if (!b) return;
+    if (b.id === "indNew") newProfile();
+    else if (b.id === "indReset") resetProfile();
+    else if (b.id === "indDel") deleteProfile();
+  };
+}
+function switchProfile(id) {
+  if (!INDSTORE.profiles[id]) return;
+  INDSTORE.active = id; saveIndStore();
+  _liveFromCfg(_getActiveCfg()); _applyActiveToChart(); buildIndicatorPanel();
+}
+function newProfile() {
+  const name = (prompt("Name this profile:", "My profile") || "").trim();
+  if (!name) return;
+  const id = "cust_" + Date.now().toString(36);
+  INDSTORE.profiles[id] = { name, builtin: false, cfg: _cfgFromLive() };
+  INDSTORE.order.push(id); INDSTORE.active = id; saveIndStore();
+  buildIndicatorPanel();
+  if (typeof showToast === "function") showToast("Saved profile: " + name, "ok");
+}
+function resetProfile() {
+  const id = INDSTORE.active;
+  const def = IND_BUILTINS[id] ? _clone(IND_BUILTINS[id].cfg) : _clone(IND_BUILTINS.short.cfg);
+  INDSTORE.profiles[id].cfg = def; saveIndStore();
+  _liveFromCfg(def); _applyActiveToChart(); buildIndicatorPanel();
+  if (typeof showToast === "function") showToast("Profile reset to defaults", "ok");
+}
+function deleteProfile() {
+  const id = INDSTORE.active;
+  if (IND_BUILTINS[id] || (_activeProfile() || {}).builtin) return;
+  if (!confirm("Delete this profile?")) return;
+  delete INDSTORE.profiles[id];
+  INDSTORE.order = INDSTORE.order.filter((x) => x !== id);
+  INDSTORE.active = INDSTORE.order[0]; saveIndStore();
+  _liveFromCfg(_getActiveCfg()); _applyActiveToChart(); buildIndicatorPanel();
+}
+$("emaBtn").addEventListener("click", (e) => { e.stopPropagation(); buildIndicatorPanel(); $("emaPop").classList.toggle("hidden"); });
 document.addEventListener("click", (e) => {
   if (!$("emaPop").contains(e.target) && e.target.id !== "emaBtn") $("emaPop").classList.add("hidden");
 });
@@ -475,6 +605,7 @@ function renderChart(d) {
   applySupertrend();
   applyRSI();
   applyMACD();
+  applyVolume();
   if (markersPrim) markersPrim.setMarkers(d.markers || []);
   fitChart();
   $("cSym").textContent = d.symbol.replace(".NS", "");
