@@ -2026,9 +2026,12 @@ function setHolding(sym, qty, buyPrice) {
   const list = getHoldings().filter((h) => (h.ticker || "").toUpperCase() !== s);
   list.push({ ticker: s, qty: qty, buy_price: buyPrice });
   saveHoldings(list);
+  if (typeof autoJournalBuy === "function") autoJournalBuy(s, null, qty, buyPrice); // auto-log the buy (R5)
 }
 function removeHolding(sym) {
-  saveHoldings(getHoldings().filter((h) => (h.ticker || "").toUpperCase() !== sym.toUpperCase()));
+  const s = sym.toUpperCase();
+  saveHoldings(getHoldings().filter((h) => (h.ticker || "").toUpperCase() !== s));
+  if (typeof autoJournalSell === "function") autoJournalSell(s); // auto-close the journal trade on sell (R5)
 }
 async function computeHoldings() {
   return (await fetch("/api/holdings", {
@@ -2891,6 +2894,54 @@ function journalSnapshot(d) {
   };
 }
 function loadJournal() { jAll().then(renderJournal); }
+/* Phase R5: auto-log a journal trade when a holding is added (buy) or removed (sell).
+   On buy, open an entry with the weekly signal snapshot (skips if one is already
+   open for that stock). On sell, close the open entry with realised P/L. Opt-out
+   via settings.autoJournal === false. Does not touch manual entries beyond closing
+   an open one for the same ticker you sold. */
+async function autoJournalBuy(sym, name, qty, buyPrice) {
+  if (getSettings().autoJournal === false) return;
+  const s = (sym || "").toUpperCase();
+  if (!s) return;
+  try {
+    const entries = await jAll();
+    if (entries.some((e) => (e.ticker || "").toUpperCase() === s && e.status !== "closed")) return;
+    let snapshot = null, price = (buyPrice != null && buyPrice !== "") ? +buyPrice : null, nm = name;
+    try {
+      const d = await (await fetch("/api/stock?symbol=" + encodeURIComponent(s) + "&tf=W")).json();
+      snapshot = journalSnapshot(d);
+      if (price == null) price = d.price;
+      if (!nm && d.quality && d.quality.name) nm = d.quality.name;
+    } catch (e) {}
+    const today = new Date().toISOString().slice(0, 10);
+    await jPut({ id: Date.now(), ticker: s, name: nm || s.replace(".NS", ""), qty: +qty || 1, status: "open",
+      entry: { date: today, price: price != null ? price : 0, reason: "", notes: "Auto-logged when added to holdings", snapshot }, auto: true });
+    const jp = document.getElementById("page-journal");
+    if (jp && jp.classList.contains("active")) loadJournal();
+  } catch (e) {}
+}
+async function autoJournalSell(sym) {
+  if (getSettings().autoJournal === false) return;
+  const s = (sym || "").toUpperCase();
+  if (!s) return;
+  try {
+    const entries = await jAll();
+    const open = entries.filter((e) => (e.ticker || "").toUpperCase() === s && e.status !== "closed");
+    if (!open.length) return;
+    let price = null;
+    try { const d = await (await fetch("/api/quote?symbols=" + encodeURIComponent(s))).json(); const q = (d.quotes || {})[s]; if (q && q.price != null) price = q.price; } catch (e) {}
+    const today = new Date().toISOString().slice(0, 10);
+    for (const e of open) {
+      const ex = price != null ? price : e.entry.price;
+      const pl_abs = Math.round((ex - e.entry.price) * (+e.qty || 1) * 100) / 100;
+      const pl_pct = e.entry.price ? Math.round((ex / e.entry.price - 1) * 1000) / 10 : 0;
+      e.status = "closed"; e.exit = { date: today, price: ex, reason: "Auto-logged when removed from holdings" }; e.realised = { pl_abs, pl_pct };
+      await jPut(e);
+    }
+    const jp = document.getElementById("page-journal");
+    if (jp && jp.classList.contains("active")) loadJournal();
+  } catch (e) {}
+}
 function jWinBadge(e) {
   if (e.status !== "closed" || !e.realised) return "";
   const w = e.realised.pl_pct >= 0;
@@ -2954,6 +3005,7 @@ function renderJournal(entries) {
       ${stat(winRate == null ? "blue" : (winRate >= 50 ? "green" : "red"), "star", winRate == null ? "—" : winRate + "%", "Win rate")}
       ${stat(realisedPl >= 0 ? "green" : "red", "up", (realisedPl >= 0 ? "+" : "") + "₹" + fmt(realisedPl), "Realised P/L")}
     </div>${analysis}
+    <div class="sec-h"><span>Log a trade</span></div>
     <form id="jForm" class="jform">
       <div class="acwrap jgrow"><input id="jSym" class="al-in" placeholder="Stock — name or symbol" autocomplete="off" value="${pf.t ? esc(pf.t) : ""}"><div id="jDrop" class="dropdown hidden"></div></div>
       <input id="jQty" class="al-in jqty" type="number" min="0" step="any" placeholder="Qty">
@@ -2962,7 +3014,7 @@ function renderJournal(entries) {
       <input id="jReason" class="al-in jgrow" placeholder="Why are you buying?">
       <button type="submit" class="btn">＋ Log trade</button>
     </form>
-    <div class="j-note">Entries capture the weekly signal at the moment you log them and are saved in this browser (included in Settings → Export backup).</div>
+    <div class="j-note">Trades are <b>logged automatically</b> when you add a stock to holdings and closed when you remove it — or log one manually above. Each entry captures the weekly signal at that moment and is saved in this browser (Settings → Export backup).</div>
     ${open.length ? `<h3 class="jsec">Open positions <span>${open.length}</span></h3><div class="jlist">${open.map(journalCard).join("")}</div>` : ""}
     ${closed.length ? `<h3 class="jsec">Closed trades <span>${closed.length}</span></h3><div class="jlist">${closed.map(journalCard).join("")}</div>` : ""}
     ${!entries.length ? stateBox({ icon: "📓", title: "No trades logged yet", msg: "Log a buy above, or tap ✎ Journal on any stock's chart to capture the signal at the time." }) : ""}`;
