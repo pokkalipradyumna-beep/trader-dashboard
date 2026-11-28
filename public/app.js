@@ -1089,20 +1089,24 @@ document.addEventListener("click", (e) => {
 /* ---------- Search / detail ---------- */
 async function loadStock(sym, tf) {
   currentSym = sym;
-  if (tf) currentTf = tf;
+  // The 9/21/50 METHOD is weekly: the strategy/detail always loads weekly. The
+  // chart timeframe (1D…ALL) is independent and controlled by loadChart().
+  currentTf = "W";
   updateStarBtn();
   showPage("search");
   $("searchEmpty").classList.add("hidden");
   $("detail").classList.remove("hidden");
   $("chartMsg").textContent = "";
   if (!chartReady) initChart();
-  document.querySelectorAll(".tfbtn").forEach((b) => b.classList.toggle("active", b.dataset.tf === currentTf));
+  currentTfKey = "method"; currentIv = "1wk"; setActiveTf("method"); fillIntervalOptions("method");
+  showChartTfNote("");
   $("chartError").classList.add("hidden");
   $("chartLoading").classList.remove("hidden");
   try {
-    const res = await fetch("/api/stock?symbol=" + encodeURIComponent(sym) + "&tf=" + currentTf);
+    const res = await fetch("/api/stock?symbol=" + encodeURIComponent(sym) + "&tf=W");
     const d = await res.json().catch(() => ({}));
     if (!res.ok || d.error) throw { code: d.error || "server_error", message: d.message || ("HTTP " + res.status) };
+    lastStockData = d;
     renderChart(d);
     renderDetail(d);
   } catch (e) {
@@ -1116,12 +1120,14 @@ function showChartError(sym, e) {
   else if (code === "feed_down") o = { ic: "📡", t: "Feed unavailable", m: "Can't reach the price feed right now — this is usually temporary.", retry: true };
   else if (code === "no_data") o = { ic: "📭", t: "No data", m: `No price data for <b>${name}</b> right now.`, retry: true };
   else o = { ic: "⚠️", t: "Couldn't load", m: (e && e.message) || "Something went wrong.", retry: true };
-  $("detailPanel").innerHTML = "";
+  // Only a failed METHOD (full) load clears the detail panel; a timeframe-only
+  // chart error leaves the intelligence intact.
+  if (currentTfKey === "method") $("detailPanel").innerHTML = "";
   $("chartError").innerHTML = `<div class="cherr-ic">${o.ic}</div><div class="cherr-t">${o.t}</div>
     <div class="cherr-m">${o.m}</div>${o.retry ? '<button class="btn sm" id="chartRetry">↻ Retry</button>' : ""}`;
   $("chartError").classList.remove("hidden");
   const rb = document.getElementById("chartRetry");
-  if (rb) rb.addEventListener("click", () => loadStock(sym, currentTf));
+  if (rb) rb.addEventListener("click", () => (currentTfKey === "method" ? loadStock(sym) : loadChart(currentTfKey, currentIv)));
 }
 
 function freshnessText(asOf) {
@@ -1133,47 +1139,152 @@ function freshnessText(asOf) {
   const day = dt.toLocaleDateString("en-IN", { day: "numeric", month: "short", timeZone: "Asia/Kolkata" });
   return `last quote ${t} IST · ${day}`;
 }
-function renderChart(d) {
-  currentCandles = d.candles;
-  candle.setData(d.candles);
-  vol.setData(d.candles.map((c) => ({ time: c.time, value: c.volume,
+// Draw a candle/line set + all client-side indicators. Used by the Method view
+// (weekly strategy, with markers) AND by the flexible timeframe loader. The
+// weekly 9/21/50 STRATEGY itself is never computed here — markers come from the
+// backend; the on-chart EMAs are visual analysis only.
+let lineSeries = null, chartType = "candle";
+function ensureLineSeries() {
+  if (!lineSeries) lineSeries = chart.addSeries(LightweightCharts.LineSeries,
+    { color: "#5b9dff", lineWidth: 2, priceLineVisible: false, lastValueVisible: true });
+  return lineSeries;
+}
+function drawCandles(bars, opts) {
+  opts = opts || {};
+  currentCandles = bars || [];
+  if (chartType === "line") {
+    candle.applyOptions({ visible: false });
+    ensureLineSeries().applyOptions({ visible: true });
+    lineSeries.setData(currentCandles.map((c) => ({ time: c.time, value: c.close })));
+  } else {
+    if (lineSeries) lineSeries.applyOptions({ visible: false });
+    candle.applyOptions({ visible: true });
+    candle.setData(currentCandles);
+  }
+  vol.setData(currentCandles.map((c) => ({ time: c.time, value: c.volume,
     color: c.close >= c.open ? "rgba(21,184,112,.35)" : "rgba(240,68,68,.35)" })));
-  applyEMAs();
-  applyBollinger();
-  applySupertrend();
-  applyRSI();
-  applyMACD();
-  applyVolume();
-  applySMA();
-  applyDonchian();
-  applyIchimoku();
-  applyKeltner();
-  applyADX();
-  applyATR();
-  applyStochRSI();
-  applyCCI();
-  applyOBV();
-  applyVWAP();
-  applyAnchoredVWAP();
-  applyVolumeProfile();
-  applyPivots();
-  applyFib();
-  applyAutoSR();
-  if (markersPrim) markersPrim.setMarkers(d.markers || []);
+  applyEMAs(); applyBollinger(); applySupertrend(); applyRSI(); applyMACD();
+  applyVolume(); applySMA(); applyDonchian(); applyIchimoku(); applyKeltner();
+  applyADX(); applyATR(); applyStochRSI(); applyCCI(); applyOBV(); applyVWAP();
+  applyAnchoredVWAP(); applyVolumeProfile(); applyPivots(); applyFib(); applyAutoSR();
+  if (markersPrim) markersPrim.setMarkers(opts.markers || []);
+  try { chart.timeScale().applyOptions({ timeVisible: !!opts.intraday, secondsVisible: false }); } catch (e) {}
   fitChart();
+}
+function nseStatus() {
+  const now = new Date();
+  const ist = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
+  const day = ist.getDay(), mins = ist.getHours() * 60 + ist.getMinutes();
+  const open = day >= 1 && day <= 5 && mins >= 555 && mins <= 930;
+  return { open, label: day === 0 || day === 6 ? "Weekend · closed" : open ? "Market open" : "Market closed" };
+}
+function renderChart(d) {
+  drawCandles(d.candles, { markers: d.markers || [], intraday: false });
   $("cSym").textContent = d.symbol.replace(".NS", "");
   document.title = d.symbol.replace(".NS", "") + " · Trader";
+  const nm = $("cName"); if (nm) nm.textContent = (d.quality && d.quality.name) || "";
+  const ex = $("cExch"); if (ex) ex.textContent = /\.NS$/i.test(d.symbol) ? "NSE" : /\.BO$/i.test(d.symbol) ? "BSE" : "";
   $("cPrice").textContent = d.price != null ? "₹" + fmt(d.price) : "";
   $("cFresh").textContent = freshnessText(d.as_of);
   const chg = (d.last_close != null && d.prev_close) ? (d.last_close - d.prev_close) / d.prev_close * 100 : null;
   const ce = $("cChg");
-  ce.textContent = chg != null ? (chg >= 0 ? "+" : "") + chg.toFixed(2) + "%" : "";
+  const chgAbs = (d.last_close != null && d.prev_close != null) ? (d.last_close - d.prev_close) : null;
+  ce.textContent = chg != null ? (chg >= 0 ? "▲ +" : "▼ ") + (chgAbs != null ? "₹" + Math.abs(chgAbs).toFixed(2) + " (" : "") + (chg >= 0 ? "+" : "") + chg.toFixed(2) + "%" + (chgAbs != null ? ")" : "") : "";
   ce.className = "cchg " + (chg >= 0 ? "up" : "down");
+  const ms = $("cMktStatus"); if (ms) { const st = nseStatus(); ms.textContent = "● " + st.label; ms.className = "th-mkt " + (st.open ? "open" : "closed"); }
   setLive();
 }
 
-document.querySelectorAll(".tfbtn").forEach((b) =>
-  b.addEventListener("click", () => { if (currentSym) loadStock(currentSym, b.dataset.tf); }));
+/* ---------- Trade-page chart timeframe + interval controls ---------- */
+const TF_PRESETS = {
+  "1D": { interval: "5m", range: "1d", intraday: true, ivs: ["1m", "5m", "15m", "30m"] },
+  "1W": { interval: "15m", range: "5d", intraday: true, ivs: ["5m", "15m", "30m", "60m"] },
+  "1M": { interval: "1d", range: "1mo", ivs: ["30m", "60m", "1d"] },
+  "3M": { interval: "1d", range: "3mo", ivs: ["1d"] },
+  "6M": { interval: "1d", range: "6mo", ivs: ["1d", "1wk"] },
+  "1Y": { interval: "1d", range: "1y", ivs: ["1d", "1wk"] },
+  "3Y": { interval: "1d", days: 1095, ivs: ["1d", "1wk"] },
+  "5Y": { interval: "1wk", days: 1825, ivs: ["1d", "1wk", "1mo"] },
+  "ALL": { interval: "1wk", range: "max", ivs: ["1wk", "1mo"] },
+};
+const IV_LABEL = { "1m": "1 min", "5m": "5 min", "15m": "15 min", "30m": "30 min", "60m": "1 hour", "1d": "1 day", "1wk": "1 week", "1mo": "1 month" };
+let currentTfKey = "method", currentIv = "1wk", chartReqToken = 0;
+const candleCache = new Map();  // key sym|tf|iv -> bars
+
+function setActiveTf(key) {
+  document.querySelectorAll("#tfRange .tf-chip").forEach((b) => b.classList.toggle("active", b.dataset.tf === key));
+}
+function fillIntervalOptions(key) {
+  const sel = $("ivSelect"); if (!sel) return;
+  if (key === "method") { sel.innerHTML = `<option value="1wk">Weekly (method)</option>`; sel.value = "1wk"; sel.disabled = true; return; }
+  sel.disabled = false;
+  const p = TF_PRESETS[key] || {};
+  sel.innerHTML = (p.ivs || [p.interval]).map((iv) => `<option value="${iv}"${iv === currentIv ? " selected" : ""}>${IV_LABEL[iv] || iv}</option>`).join("");
+  if (!(p.ivs || []).includes(currentIv)) { currentIv = p.interval; sel.value = currentIv; }
+}
+function showChartTfNote(txt) {
+  const n = $("chartTfNote"); if (!n) return;
+  if (txt) { n.textContent = txt; n.classList.remove("hidden"); } else { n.classList.add("hidden"); }
+}
+async function loadChart(key, ivOverride) {
+  if (!currentSym) return;
+  if (key === "method") {
+    currentTfKey = "method"; currentIv = "1wk"; setActiveTf("method"); fillIntervalOptions("method");
+    showChartTfNote("");
+    if (lastStockData) drawCandles(lastStockData.candles, { markers: lastStockData.markers || [], intraday: false });
+    return;
+  }
+  const p = TF_PRESETS[key]; if (!p) return;
+  // A timeframe click uses the preset's default interval; the interval dropdown
+  // (ivOverride) is the only thing that changes the interval for a given range.
+  currentIv = ivOverride || p.interval;
+  if (!(p.ivs || [p.interval]).includes(currentIv)) currentIv = p.interval;
+  currentTfKey = key;
+  setActiveTf(key); fillIntervalOptions(key); $("ivSelect").value = currentIv;
+  const cacheKey = currentSym + "|" + key + "|" + currentIv;
+  const token = ++chartReqToken;
+  $("chartError").classList.add("hidden");
+  const intraday = TF_PRESETS[key].intraday || ["1m", "5m", "15m", "30m", "60m"].includes(currentIv);
+  if (candleCache.has(cacheKey)) {
+    drawCandles(candleCache.get(cacheKey), { markers: currentIv === "1wk" ? (lastStockData || {}).markers || [] : [], intraday });
+    showChartTfNote(currentIv === "1wk" ? "" : "Visual analysis · weekly 9/21/50 strategy markers show on the ★ Method view.");
+    return;
+  }
+  $("chartLoading").classList.remove("hidden");
+  try {
+    const qsp = new URLSearchParams({ symbol: currentSym, interval: currentIv });
+    if (p.days) qsp.set("days", p.days); else qsp.set("range", p.range);
+    const d = await fetch("/api/candles?" + qsp.toString()).then((r) => r.json());
+    if (token !== chartReqToken) return;  // a newer request superseded this one
+    if (d.error || !d.bars || !d.bars.length) {
+      const intradayMsg = intraday ? " Intraday history from the free feed is limited — try a daily interval or a longer range." : "";
+      showChartError(currentSym, { code: d.error || "no_data", message: (d.message || "No candles for this interval.") + intradayMsg });
+      return;
+    }
+    candleCache.set(cacheKey, d.bars);
+    drawCandles(d.bars, { markers: currentIv === "1wk" ? (lastStockData || {}).markers || [] : [], intraday: d.intraday });
+    showChartTfNote(currentIv === "1wk" ? "" : "Visual analysis · weekly 9/21/50 strategy markers show on the ★ Method view.");
+  } catch (e) {
+    if (token === chartReqToken) showChartError(currentSym, { code: "feed_down", message: "Couldn't load candles." });
+  } finally { if (token === chartReqToken) $("chartLoading").classList.add("hidden"); }
+}
+// Wire the timeframe chips, interval select, chart-type toggle and fullscreen.
+document.querySelectorAll("#tfRange .tf-chip").forEach((b) =>
+  b.addEventListener("click", () => loadChart(b.dataset.tf)));
+if ($("ivSelect")) $("ivSelect").addEventListener("change", (e) => loadChart(currentTfKey === "method" ? "1Y" : currentTfKey, e.target.value));
+document.querySelectorAll("#ctypeToggle .ctype-btn").forEach((b) =>
+  b.addEventListener("click", () => {
+    chartType = b.dataset.ctype;
+    document.querySelectorAll("#ctypeToggle .ctype-btn").forEach((x) => x.classList.toggle("active", x === b));
+    if (currentCandles && currentCandles.length) drawCandles(currentCandles, { markers: currentIv === "1wk" ? (lastStockData || {}).markers || [] : [], intraday: ["1m", "5m", "15m", "30m", "60m"].includes(currentIv) });
+  }));
+if ($("fsBtn")) $("fsBtn").addEventListener("click", () => {
+  const card = $("chartCard"); if (!card) return;
+  card.classList.toggle("chart-fs");
+  document.body.classList.toggle("chart-fs-on", card.classList.contains("chart-fs"));
+  setTimeout(() => { try { chart.applyOptions({}); fitChart(); } catch (e) {} }, 60);
+});
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") { const c = $("chartCard"); if (c && c.classList.contains("chart-fs")) { c.classList.remove("chart-fs"); document.body.classList.remove("chart-fs-on"); setTimeout(fitChart, 60); } } });
 
 function regimeLine(p) {
   if (!p) return "<span class='down'>n/a</span>";

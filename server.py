@@ -176,6 +176,73 @@ def _intraday(symbol, interval="15m", rng="5d"):
             "interval": interval, "bars": bars}
 
 
+# Chart data plumbing ONLY — flexible range x interval candles for the Trade-page
+# chart. Reuses the engine's Yahoo URL/SSL; it changes NO engine function and never
+# touches the weekly 9/21·21/50 strategy, recommendations, or any intelligence
+# engine. Intraday intervals keep epoch timestamps; daily+ use date strings.
+_INTRADAY_IV = {"1m", "2m", "5m", "15m", "30m", "60m", "90m", "1h"}
+_VALID_IV = _INTRADAY_IV | {"1d", "5d", "1wk", "1mo", "3mo"}
+_VALID_RANGE = {"1d", "5d", "1mo", "3mo", "6mo", "1y", "2y", "5y", "10y", "ytd", "max"}
+
+
+def _candles(symbol, interval, rng=None, days=None):
+    import time as _t
+    import urllib.request as _ur
+    import urllib.error as _ue
+    iv = "60m" if interval == "1h" else interval
+    if iv not in _VALID_IV:
+        iv = "1d"
+    import re as _re
+    base = engine._yahoo_url(symbol, rng or "1y", iv)
+    # Precise multi-year windows use period1/period2 (Yahoo has no native 3y range).
+    if days:
+        now = int(_t.time())
+        base = _re.sub(r"range=[^&]+", "period1=%d&period2=%d" % (now - int(days) * 86400, now), base)
+    req = _ur.Request(base, headers={"User-Agent": engine.UA})
+    try:
+        with _ur.urlopen(req, timeout=20, context=engine._SSL_CTX) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except _ue.HTTPError as e:
+        if e.code in (404, 400):
+            raise engine.NotFoundError("%s isn't on the data feed." % symbol)
+        raise engine.FeedDownError("The data feed returned an error (HTTP %s)." % e.code)
+    except Exception as e:  # noqa: BLE001
+        raise engine.FeedDownError("Can't reach the data feed right now (%s)." % e)
+    res = (data.get("chart") or {}).get("result") or []
+    if not res:
+        raise engine.NoDataError("No candle data available for %s at this interval." % symbol)
+    r = res[0]
+    ts = r.get("timestamp") or []
+    q = ((r.get("indicators") or {}).get("quote") or [{}])[0]
+    o, h, lo, c, v = q.get("open"), q.get("high"), q.get("low"), q.get("close"), q.get("volume")
+    intraday = iv in _INTRADAY_IV
+    import datetime as _d
+    bars = []
+    for i, t in enumerate(ts):
+        ov, hv, lov, cv = (o or [])[i], (h or [])[i], (lo or [])[i], (c or [])[i]
+        if None in (ov, hv, lov, cv) or min(ov, hv, lov, cv) <= 0 or hv < lov:
+            continue
+        tm = int(t) if intraday else _d.datetime.utcfromtimestamp(int(t)).date().isoformat()
+        bars.append({"time": tm, "open": ov, "high": hv, "low": lov, "close": cv, "volume": (v or [])[i] or 0})
+    # Merge Yahoo's trailing duplicate for weekly/monthly (same logic as the engine).
+    if iv in ("1wk", "1mo") and len(bars) >= 2:
+        thresh = 6 if iv == "1wk" else 25
+        merged = [bars[0]]
+        for b in bars[1:]:
+            gap = (_d.date.fromisoformat(b["time"]) - _d.date.fromisoformat(merged[-1]["time"])).days
+            if gap < thresh:
+                p = merged[-1]; p["close"] = b["close"]
+                p["high"] = max(p["high"], b["high"]); p["low"] = min(p["low"], b["low"])
+                p["volume"] = b["volume"] or p["volume"]
+            else:
+                merged.append(b)
+        bars = merged
+    meta = r.get("meta") or {}
+    return {"symbol": symbol, "interval": iv, "intraday": intraday,
+            "currency": meta.get("currency", "INR"),
+            "as_of": meta.get("regularMarketTime"), "bars": bars}
+
+
 def _news_company(symbol):
     """Best human name for a symbol, for the news query. Reads the curated
     fundamentals name, then the _EXTRA low-priced list, else strips the
@@ -713,6 +780,25 @@ class Handler(BaseHTTPRequestHandler):
                 d["valuation"] = (valuation.value(f, d["price"]) if f
                                   else {"applicable": False, "note": "No fundamentals on file."})
                 self._send(200, json.dumps(d))
+                return
+            if u.path == "/api/candles":
+                sym = (qs.get("symbol") or ["RELIANCE.NS"])[0]
+                iv = (qs.get("interval") or ["1d"])[0]
+                rng = (qs.get("range") or [None])[0]
+                days = (qs.get("days") or [None])[0]
+                try:
+                    days = int(days) if days else None
+                except ValueError:
+                    days = None
+                if rng and rng not in _VALID_RANGE:
+                    rng = None
+                try:
+                    self._send(200, json.dumps(_candles(sym, iv, rng, days)))
+                except engine.NotFoundError as ex:
+                    self._send(200, json.dumps({"error": "not_found", "message": str(ex), "bars": []}))
+                except (engine.FeedDownError, engine.NoDataError) as ex:
+                    code = "no_data" if isinstance(ex, engine.NoDataError) else "feed_down"
+                    self._send(200, json.dumps({"error": code, "message": str(ex), "bars": []}))
                 return
             if u.path == "/api/intraday":
                 sym = (qs.get("symbol") or ["RELIANCE.NS"])[0]
