@@ -24,10 +24,16 @@ def main():
     universe = _load_universe()
     with open(os.path.join(ROOT, "fundamentals.json"), encoding="utf-8") as f:
         doc = json.load(f)
-    records = fd.build(universe, doc)
+    extra = None
+    extra_path = os.path.join(ROOT, "data", "manual", "fundamentals_extra.json")
+    if os.path.exists(extra_path):
+        with open(extra_path, encoding="utf-8") as f:
+            extra = json.load(f)
+    records = fd.build(universe, doc, extra_doc=extra)
     summary = fd.summarise(records, len(universe))
     out = {"generated_at": _now_iso(), "methodology_version": fd.METHODOLOGY_VERSION,
            "source": doc.get("source"), "source_as_of": doc.get("as_of"),
+           "manual_extension": (extra or {}).get("source_file"),
            "freshness_days_threshold": fd.FRESH_DAYS, "min_evaluated_gates": fd.MIN_EVALUATED,
            "sector_notes": fd.SECTOR_NOTE,
            "limitations": [

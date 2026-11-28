@@ -1,0 +1,10 @@
+{
+ "generated_at": "2026-11-28T13:44:42+00:00",
+ "source_file": "data\\manual\\fundamentals_template.csv",
+ "rows_read": 177,
+ "accepted": 0,
+ "not_filled": 177,
+ "rejected": [],
+ "companies": {},
+ "note": "Manual rows. Each value's source, period and retrieval date are per row. Not independently verified."
+}

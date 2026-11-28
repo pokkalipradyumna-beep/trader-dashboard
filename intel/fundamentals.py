@@ -104,9 +104,10 @@ def _test(key, value):
     return value >= thr if op == ">=" else value <= thr
 
 
-def analyse_stock(symbol, rec, as_of, today):
+def analyse_stock(symbol, rec, as_of, today, source_label=None, period=None, sector_label=None):
     """rec = fundamentals.json company record (or None). Returns a coverage record."""
     sector = (rec or {}).get("type") if rec else None
+    src = source_label or "fundamentals.json (screener.in, manual)"
     model = sector if sector in SECTOR_MODELS else "UNCLASSIFIED"
     applicable = SECTOR_MODELS.get(model, [])
     age = _age_days(as_of, today) if rec else None
@@ -123,7 +124,8 @@ def analyse_stock(symbol, rec, as_of, today):
             status = "NO_SOURCE"
         applies = key in applicable
         m = {"applies": applies, "value": value,
-             "source": (rec and "fundamentals.json (screener.in, manual)") or None,
+             "source": (rec and src) or None,
+             "period": (period if rec else None),
              "as_of": as_of if rec else None, "age_days": age if rec else None,
              "freshness": fresh if rec else "NO_SOURCE",
              "validation": status, "note": note}
@@ -175,8 +177,10 @@ def analyse_stock(symbol, rec, as_of, today):
 
     return {
         "symbol": symbol, "sector_model": model, "sector_source":
-            ("manual classification in fundamentals.json" if sector else "none"),
-        "as_of": as_of if rec else None, "freshness": fresh if rec else "NO_SOURCE",
+            (sector_label or "manual classification in fundamentals.json") if sector else "none",
+        "as_of": as_of if rec else None, "period": period if rec else None,
+        "source": src if rec else None,
+        "freshness": fresh if rec else "NO_SOURCE",
         "age_days": age if rec else None,
         "applicable_metrics": n_app, "evaluated_gates": n_eval,
         "passed_gates": len(passed), "failed_gates": len(failed),
@@ -187,15 +191,30 @@ def analyse_stock(symbol, rec, as_of, today):
     }
 
 
-def build(universe, fundamentals_doc, today=None):
-    """universe: list of (symbol, name). fundamentals_doc: parsed fundamentals.json."""
+def build(universe, fundamentals_doc, today=None, extra_doc=None):
+    """universe: list of (symbol, name). fundamentals_doc: parsed fundamentals.json
+    (primary). extra_doc: parsed data/manual/fundamentals_extra.json (secondary,
+    used only for symbols NOT in the primary file). Per-row source is kept."""
     today = today or _dt.datetime.now(_dt.timezone.utc).date()
     as_of = (fundamentals_doc or {}).get("as_of")
     companies = (fundamentals_doc or {}).get("companies") or {}
+    extra = (extra_doc or {}).get("companies") or {}
     records = {}
     for sym, name in universe:
-        rec = companies.get(sym)
-        r = analyse_stock(sym, rec, as_of, today)
+        if sym in companies:
+            r = analyse_stock(sym, companies[sym], as_of, today)
+        elif sym in extra:
+            rec = extra[sym]
+            meta = rec.get("_source") or {}
+            label = "manual row: %s%s" % (meta.get("source_name") or "unnamed source",
+                                           (" " + meta["source_url"]) if meta.get("source_url") else "")
+            r = analyse_stock(sym, rec, meta.get("retrieved_on"), today, source_label=label,
+                              period=meta.get("period"),
+                              sector_label="manual sector classification (manual row)")
+            if rec.get("_cell_errors"):
+                r["cell_errors"] = rec["_cell_errors"]
+        else:
+            r = analyse_stock(sym, None, None, today)
         r["name"] = name
         records[sym] = r
     return records
