@@ -99,7 +99,7 @@ class OrchestratorFailureGuard(unittest.TestCase):
 
     def test_all_success_daily_is_ok(self):
         rc, calls, h = self._run(set(), "daily")
-        self.assertEqual(calls, ["regime", "recommend", "news", "outcomes"])
+        self.assertEqual(calls, ["regime", "recommend", "news", "outcomes", "outlook"])
         self.assertEqual(rc, 0)
         self.assertEqual(h["overall"], "OK")
 

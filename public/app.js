@@ -1390,6 +1390,7 @@ function renderDetail(d) {
   // ---- Section 1: Trading signal & technical analysis ----
   let html = `<nav class="d-subnav">
       <button data-anchor="d-analysis" class="active">Analysis</button>
+      <button data-anchor="d-outlook">Outlook</button>
       <button data-anchor="d-regime">Regime</button>
       <button data-anchor="d-optimize">Backtest</button>
       <button data-anchor="d-recommend">Recommendation</button>
@@ -1413,6 +1414,8 @@ function renderDetail(d) {
         ${rsiHtml}${macdHtml}</div>
       <div class="block"><h3>Confluence &amp; momentum</h3>${statusStrip(d.signal_9_21, d.signal_21_50)}${confluenceBlock(d.confluence)}</div>
     </div></section>
+    <section class="d-sec d-sec-feature" id="d-outlook"><h2 class="d-h"><span class="d-num">★</span>Predictive outlook <span class="d-tag">evidence-based · not a probability</span></h2>
+      <div id="outlookBox"><div class="scanhint"><span class="spinner"></span>Building predictive outlook…</div></div></section>
     <div id="taSummaryWrap"></div>
     <section class="d-sec" id="d-regime"><h2 class="d-h"><span class="d-num">2</span>Market regime <span class="d-tag">independent analysis</span></h2>
       <div id="regimeBox"><div class="scanhint"><span class="spinner"></span>Loading regime analysis…</div></div></section>
@@ -1484,12 +1487,66 @@ function renderDetail(d) {
   lastStockData = d;
   wireDetailSubnav();  // sticky Analysis/Regime/Fundamentals/News jump nav
   renderTASummary();   // optional plain-English summary (from selected indicators), when enabled
+  loadOutlook(d.symbol);// async: fills the Predictive-outlook section (TIS Phase 7, reuses regime/strategy/fundamentals)
   loadRegime(d.symbol);// async: fills the Market-regime section (TIS Phase 2, independent engine)
   loadOptimize(d.symbol);// async: fills the Strategy-backtest section (TIS Phase 3, walk-forward)
   loadRecommend(d.symbol);// async: fills the System-recommendation section (TIS Phase 4)
   loadIntel(d.symbol); // async: fills the Company-intelligence section (TIS Phase 5, facts-only)
   loadPerspectives(d); // async: fills the Trading-perspectives section (daily + delayed intraday)
   loadNews(d.symbol);  // async: fills the Latest-news section (Google News RSS, facts only)
+}
+
+/* ---------- Predictive Outlook (TIS Phase 7 — evidence-based, read-only) ---------- */
+const OUTLOOK_DIR = {
+  "BULLISH": ["up", "▲ Bullish"], "MODERATELY BULLISH": ["up soft", "▲ Moderately bullish"],
+  "NEUTRAL": ["flat", "→ Neutral"], "MODERATELY BEARISH": ["down soft", "▼ Moderately bearish"],
+  "BEARISH": ["down", "▼ Bearish"], "INSUFFICIENT EVIDENCE": ["muted", "? Insufficient evidence"],
+};
+const OUTLOOK_STR = { HIGH: ["ok", "HIGH"], MODERATE: ["near", "MODERATE"], LOW: ["muted", "LOW"], INSUFFICIENT: ["muted", "INSUFFICIENT"] };
+function outlookItems(label, arr, cls) {
+  if (!arr || !arr.length) return "";
+  return `<div class="ol-evgrp"><div class="ol-evlbl ${cls}">${label}</div>${arr.map((i) =>
+    `<div class="ol-ev"><b>${_esc(i.factor)}</b> — ${_esc(i.detail)}</div>`).join("")}</div>`;
+}
+function outlookCard(hzKey, o) {
+  if (!o) return "";
+  const d = OUTLOOK_DIR[o.direction] || ["muted", o.direction];
+  const s = OUTLOOK_STR[o.evidence_strength] || ["muted", o.evidence_strength];
+  const label = { short_term: "Short-term", swing: "Swing", long_term: "Long-term" }[hzKey] || hzKey;
+  const fc = o.fundamental_context;
+  const fcHtml = fc ? `<div class="ol-fund">Fundamentals: <b>${_esc(fc.category)}</b>${fc.sector_model ? " · " + _esc(fc.sector_model) : ""}${fc.note ? ` <span class="ol-fnote">${_esc(fc.note)}</span>` : ""}</div>` : "";
+  const rec = o.recommendation ? `<span class="ol-rec">System rec: ${_esc(o.recommendation)}</span>` : "";
+  return `<div class="ol-card">
+    <div class="ol-card-h"><b>${label}</b> ${rec}</div>
+    <div class="ol-badges"><span class="ol-dir ${d[0]}">${d[1]}</span>
+      <span class="ol-str ${s[0]}">Evidence: ${s[1]}</span></div>
+    ${fcHtml}
+    ${outlookItems("Supporting", o.supporting, "ok")}
+    ${outlookItems("Contradicting", o.contradicting, "no")}
+    ${outlookItems("Risks", o.risks, "warn")}
+    ${o.invalidation && o.invalidation.length ? `<div class="ol-evgrp"><div class="ol-evlbl">What would change it</div>${o.invalidation.map((t) => `<div class="ol-ev">${_esc(t)}</div>`).join("")}</div>` : ""}
+    ${o.evidence_reasons && o.evidence_reasons.length ? `<div class="ol-why">Why ${s[1]}: ${o.evidence_reasons.map(_esc).join(" ")}</div>` : ""}
+    <div class="ol-asof">Last candle: ${_esc(o.last_candle || "—")} · ${_esc(o.interval || "")} · ${_esc(o.data_status || "")}</div>
+  </div>`;
+}
+async function loadOutlook(sym) {
+  const box = $("outlookBox");
+  if (!box) return;
+  let j;
+  try { j = await fetch("/api/system/outlook/stock?symbol=" + encodeURIComponent(sym)).then((r) => r.json()); }
+  catch (e) { box.innerHTML = `<div class="note">Predictive outlook unavailable (offline).</div>`; return; }
+  if (!j || !j.generated || !j.stock) {
+    box.innerHTML = `<div class="note">No predictive outlook on file for this stock yet. It is generated as an offline batch that reuses the regime, strategy, fundamental and news engines — it does not re-fetch data.</div>`;
+    return;
+  }
+  const st = j.stock, hz = st.horizons || {};
+  const cards = ["short_term", "swing", "long_term"].map((k) => outlookCard(k, hz[k])).join("");
+  const limits = (st.data_limitations || []).map((t) => `<li>${_esc(t)}</li>`).join("");
+  box.innerHTML = `
+    <div class="ol-intro">Evidence-based directional outlook across three horizons, built by reusing the regime, strategy-backtest, fundamental-coverage and news engines. <b>No probability or price target</b> is shown — predictive accuracy is not validated. Method <code>${_esc(st.methodology_version || "")}</code>.</div>
+    <div class="ol-grid">${cards}</div>
+    ${limits ? `<div class="ol-limits"><b>Data limitations:</b><ul>${limits}</ul></div>` : ""}
+    <div class="ol-disc">${_esc(st.disclaimer || "")}</div>`;
 }
 
 /* ---------- Market Regime (TIS Phase 2 — independent engine, read-only) ---------- */

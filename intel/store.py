@@ -212,6 +212,13 @@ class JsonFileStore(Store):
     def put_final_audit(self, data):
         self._atomic_write(os.path.join(self.root, "final_audit.json"), data)
 
+    # ---- Phase 7: predictive outlook (single derived file) ----
+    def get_outlook(self):
+        return self._read(os.path.join(self.root, "outlook.json"))
+
+    def put_outlook(self, data):
+        self._atomic_write(os.path.join(self.root, "outlook.json"), data)
+
     # ---- shared jsonl reader ----
     def _read_jsonl(self, fname, symbol=None, limit=None):
         path = os.path.join(self.root, fname)

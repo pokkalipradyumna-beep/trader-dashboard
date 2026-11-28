@@ -574,6 +574,22 @@ def _system_read(path, qs):
             rec = (fa_doc.get("stocks") or {}).get(sym)
             return {"generated": True, "stock": rec} if rec else {"symbol": sym, "generated": False}
         return dict(fa_doc, generated=True)
+    # ---- Phase 7: predictive outlook (read-only) ----
+    if path == "/api/system/outlook" or path == "/api/system/outlook/overview":
+        ol_doc = store.get_outlook() if store else None
+        if not ol_doc:
+            return {"generated": False, "message": "Outlook not generated yet. Run python -m intel.scan_outlook."}
+        if path == "/api/system/outlook/overview":
+            return {k: v for k, v in ol_doc.items() if k != "stocks"} | {"generated": True}
+        return dict(ol_doc, generated=True)
+    if path == "/api/system/outlook/stock":
+        ol_doc = store.get_outlook() if store else None
+        sym = (qs.get("symbol") or [""])[0].upper()
+        if not sym:
+            return {"error": "missing symbol"}
+        rec = (ol_doc or {}).get("stocks", {}).get(sym) if ol_doc else None
+        return {"generated": True, "stock": rec} if rec else {"symbol": sym, "generated": False,
+                "message": "No predictive outlook for this symbol yet."}
     # ---- Phase 6: System monitoring (read-only) ----
     if path == "/api/system/health":
         h = store.get_health() if store else None
