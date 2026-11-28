@@ -124,6 +124,45 @@ class JsonFileStore(Store):
     def put_optimize_state(self, data):
         self._atomic_write(os.path.join(self.root, "optimize_state.json"), data)
 
+    # ---- Phase 4: recommendation registry + resumable state + append-only history ----
+    def get_recommend(self):
+        return self._read(os.path.join(self.root, "recommend.json"))
+
+    def put_recommend(self, data):
+        self._atomic_write(os.path.join(self.root, "recommend.json"), data)
+
+    def get_recommend_state(self):
+        return self._read(os.path.join(self.root, "recommend_state.json"))
+
+    def put_recommend_state(self, data):
+        self._atomic_write(os.path.join(self.root, "recommend_state.json"), data)
+
+    def append_recommend_history(self, entry):
+        """Append-only (Correction 4): existing records are NEVER modified."""
+        path = os.path.join(self.root, "recommend_history.jsonl")
+        os.makedirs(self.root, exist_ok=True)
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, separators=(",", ":")) + "\n")
+
+    def read_recommend_history(self, symbol=None, limit=None):
+        path = os.path.join(self.root, "recommend_history.jsonl")
+        out = []
+        try:
+            with open(path, encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        e = json.loads(line)
+                    except Exception:  # noqa: BLE001
+                        continue
+                    if symbol is None or e.get("symbol") == symbol:
+                        out.append(e)
+        except FileNotFoundError:
+            return []
+        return out[-limit:] if limit else out
+
     # ---- append-only run log (audit) ----
     def append_run(self, entry):
         path = os.path.join(self.root, "scan_runs.jsonl")

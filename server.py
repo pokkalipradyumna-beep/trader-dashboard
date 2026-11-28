@@ -483,6 +483,34 @@ def _system_read(path, qs):
                     "params": (op or {}).get("params"), "stock": rec}
         return {"symbol": sym, "generated": False,
                 "message": "No optimisation record yet for this stock."}
+    # ---- Phase 4: Recommendation Engine (read-only) ----
+    if path == "/api/system/recommend" or path == "/api/system/recommend/overview":
+        rc = store.get_recommend() if store else None
+        if not rc:
+            return {"generated": False,
+                    "message": "Recommendations not generated yet. Run python -m intel.scan_recommend."}
+        if path == "/api/system/recommend/overview":
+            return {"generated": True, "generated_at": rc.get("generated_at"),
+                    "methodology_version": rc.get("methodology_version"),
+                    "universe_size": rc.get("universe_size"), "counts": rc.get("counts"),
+                    "params": rc.get("params"), "limitations": rc.get("limitations"),
+                    "technical_debt": rc.get("technical_debt")}
+        light = {k: v for k, v in rc.items() if k != "stocks"}
+        light["generated"] = True
+        light["symbols"] = sorted((rc.get("stocks") or {}).keys())
+        return light
+    if path == "/api/system/recommend/stock":
+        sym = (qs.get("symbol") or [""])[0]
+        if not sym:
+            return {"error": "missing symbol"}
+        rc = store.get_recommend() if store else None
+        rec = (rc or {}).get("stocks", {}).get(sym.upper()) if rc else None
+        if rec:
+            hist = store.read_recommend_history(sym.upper(), limit=12) if store else []
+            return {"generated": True, "methodology_version": (rc or {}).get("methodology_version"),
+                    "params": (rc or {}).get("params"), "stock": rec, "history_tail": hist}
+        return {"symbol": sym, "generated": False,
+                "message": "No recommendation record yet for this stock."}
     return {"error": "unknown system endpoint"}
 
 

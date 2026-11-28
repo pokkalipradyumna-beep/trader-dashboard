@@ -1392,6 +1392,7 @@ function renderDetail(d) {
       <button data-anchor="d-analysis" class="active">Analysis</button>
       <button data-anchor="d-regime">Regime</button>
       <button data-anchor="d-optimize">Backtest</button>
+      <button data-anchor="d-recommend">Recommendation</button>
       <button data-anchor="d-fundamentals">Fundamentals</button>
       <button data-anchor="d-news">News</button></nav>
     <section class="d-sec" id="d-analysis">
@@ -1416,11 +1417,13 @@ function renderDetail(d) {
       <div id="regimeBox"><div class="scanhint"><span class="spinner"></span>Loading regime analysis…</div></div></section>
     <section class="d-sec" id="d-optimize"><h2 class="d-h"><span class="d-num">3</span>Strategy backtest <span class="d-tag">walk-forward · out-of-sample</span></h2>
       <div id="optimizeBox"><div class="scanhint"><span class="spinner"></span>Loading backtest results…</div></div></section>
-    <section class="d-sec"><h2 class="d-h"><span class="d-num">4</span>Trading perspectives — how to trade this</h2>
+    <section class="d-sec" id="d-recommend"><h2 class="d-h"><span class="d-num">4</span>System recommendation <span class="d-tag">independent · not advice</span></h2>
+      <div id="recommendBox"><div class="scanhint"><span class="spinner"></span>Loading system recommendation…</div></div></section>
+    <section class="d-sec"><h2 class="d-h"><span class="d-num">5</span>Trading perspectives — how to trade this</h2>
       <div id="perspectives"><div class="scanhint"><span class="spinner"></span>Analysing across timeframes…</div></div></section>`;
 
   // ---- Section 2: Fundamentals & quality ----
-  html += `<section class="d-sec" id="d-fundamentals"><h2 class="d-h"><span class="d-num">5</span>Fundamentals &amp; quality</h2><div class="d-grid">`;
+  html += `<section class="d-sec" id="d-fundamentals"><h2 class="d-h"><span class="d-num">6</span>Fundamentals &amp; quality</h2><div class="d-grid">`;
   if (q && q.available) {
     const qcls = { PASS: "ok", NEAR: "near", FAIL: "no" }[q.quality] || "";
     const vcls = { CHEAP: "ok", FAIR: "near", EXPENSIVE: "no" }[q.valuation] || "";
@@ -1437,7 +1440,7 @@ function renderDetail(d) {
   html += `</div></section>`;
 
   // ---- Section 3: Valuation ----
-  html += `<section class="d-sec"><h2 class="d-h"><span class="d-num">6</span>Valuation</h2><div class="d-grid">`;
+  html += `<section class="d-sec"><h2 class="d-h"><span class="d-num">7</span>Valuation</h2><div class="d-grid">`;
   if (val && val.applicable) {
     const up = val.upside_pct;
     const upPill = val.flag
@@ -1459,7 +1462,7 @@ function renderDetail(d) {
   const coName = (q && q.name) || sym.replace(/\.(NS|BO)$/i, "");
   const seg = q && q.type ? (q.type === "bank" ? "Banking / financials" : q.type) : null;
   const infoRow = (l, val2) => `<div class="row"><span>${l}</span><span class="r-v">${val2}</span></div>`;
-  html += `<section class="d-sec"><h2 class="d-h"><span class="d-num">7</span>Company information</h2><div class="d-grid">
+  html += `<section class="d-sec"><h2 class="d-h"><span class="d-num">8</span>Company information</h2><div class="d-grid">
       <div class="block"><h3>Overview</h3>
         ${infoRow("Company", coName)}
         ${infoRow("Symbol", sym)}
@@ -1471,7 +1474,7 @@ function renderDetail(d) {
     </div></section>`;
 
   // ---- Section 6: Latest news (facts only — headline, source, date, link) ----
-  html += `<section class="d-sec" id="d-news"><h2 class="d-h"><span class="d-num">8</span>Latest news</h2>
+  html += `<section class="d-sec" id="d-news"><h2 class="d-h"><span class="d-num">9</span>Latest news</h2>
       <div id="newsBox"><div class="scanhint"><span class="spinner"></span>Loading news…</div></div></section>`;
 
   $("detailPanel").innerHTML = html;
@@ -1480,6 +1483,7 @@ function renderDetail(d) {
   renderTASummary();   // optional plain-English summary (from selected indicators), when enabled
   loadRegime(d.symbol);// async: fills the Market-regime section (TIS Phase 2, independent engine)
   loadOptimize(d.symbol);// async: fills the Strategy-backtest section (TIS Phase 3, walk-forward)
+  loadRecommend(d.symbol);// async: fills the System-recommendation section (TIS Phase 4)
   loadPerspectives(d); // async: fills the Trading-perspectives section (daily + delayed intraday)
   loadNews(d.symbol);  // async: fills the Latest-news section (Google News RSS, facts only)
 }
@@ -1608,6 +1612,73 @@ async function loadOptimize(sym) {
     </div>
     <div class="opt-leader"><div class="reg-dim">Other strategies (OOS avg/trade):</div>
       ${otherConfigs.map(([cid, v]) => `<span class="reg-chip">${_esc(v.label)}: <b class="${v.oos.expectancy_pct > 0 ? "up" : "down"}">${v.oos.expectancy_pct > 0 ? "+" : ""}${v.oos.expectancy_pct}%</b></span>`).join("")}</div>`;
+}
+
+/* ---------- System recommendation (TIS Phase 4 — independent, not advice) ---------- */
+const REC_BADGE = {
+  "STRONG BUY": ["up", "STRONG BUY"], "BUY": ["up", "BUY"], "HOLD": ["flat", "HOLD"],
+  "WAIT": ["muted", "WAIT"], "SELL": ["down", "SELL"], "INSUFFICIENT_EVIDENCE": ["near", "Insufficient evidence"],
+};
+const REC_STYLES = [["short_term", "Short-term"], ["swing", "Swing"], ["long_term", "Long-term"]];
+function recBadge(r) { const m = REC_BADGE[r] || ["muted", r]; return `<span class="rec-badge ${m[0]}">${m[1]}</span>`; }
+function recStyleCard(label, s, p) {
+  if (!s) return "";
+  const rec = s.recommendation;
+  const b = recBadge(rec);
+  if (rec === "INSUFFICIENT_EVIDENCE") {
+    return `<div class="rec-card"><div class="rec-card-h"><b>${label}</b>${b}</div>
+      <div class="rec-reason">${(s.eligibility && s.eligibility.failed || []).map(_esc).join("; ") || "Prerequisites not met."}</div>
+      <div class="rec-dim">Fail-closed: no strategy is reported when the evidence does not meet the gate.</div></div>`;
+  }
+  const cfg = s.config_used || {}, cr = s.config_reliability || {}, rg2 = s.regime || {}, sz = s.position_sizing || {};
+  const row = (l, v, suf) => v == null ? "" : `<div class="rec-iv"><span>${l}</span><span>${v}${suf || ""}</span></div>`;
+  const tradeBlock = (rec === "BUY" || rec === "STRONG BUY") ? `
+    <div class="rec-trade">
+      ${row("Entry (ref)", s.entry_ref)}${row("Stop", s.stop)}${row("Target", s.target)}${row("Reward:risk", s.rr)}
+      ${row("ATR", s.atr)}${row("Support", s.support)}${row("Resistance", s.resistance)}</div>
+    <div class="rec-size"><b>Sizing</b> (example ₹${(sz.capital_example || 0).toLocaleString("en-IN")}): ${sz.shares || 0} shares · ${sz.binding_limit || "—"}-limited · risk ${sz.actual_risk_pct != null ? sz.actual_risk_pct + "%" : "—"} · alloc ${sz.actual_alloc_pct != null ? sz.actual_alloc_pct + "%" : "—"}<div class="rec-dim">${_esc(sz.formula || "")} · a backtested/last-close entry is not a guaranteed live fill.</div></div>` : "";
+  const costs = s.costs || {};
+  return `<div class="rec-card">
+    <div class="rec-card-h"><b>${label}</b>${b}<span class="rec-ev">Evidence: ${s.evidence}</span></div>
+    <div class="rec-badges">${regBadge(REG_TREND, rg2.trend)} ${regBadge(REG_VOL, rg2.volatility)}${rg2.reversal === "POTENTIAL_REVERSAL" ? ' <span class="reg-badge rev">⚠ reversal</span>' : ""}</div>
+    <div class="rec-cfg">Config: <b>${_esc(cfg.label || cfg.id || "—")}</b> · own walk-forward: ${cr.oos_trades || 0} OOS trades, PF ${cr.profit_factor}, ${Math.round((cr.positive_fold_frac || 0) * 100)}% folds+ ${cr.passed ? "✓" : "✗"}</div>
+    ${tradeBlock}
+    <div class="rec-costs rec-dim">Costs: historical ${costs.historical_per_side_pct}%/side (in backtest) · est. live ${costs.est_live_pct}% · slippage ${costs.slippage_pct}% (kept separate)</div>
+    ${(s.reasons || []).length ? `<div class="rec-reasons">${s.reasons.map((r) => `• ${_esc(r)}`).join("<br>")}</div>` : ""}
+    ${(s.warnings || []).length ? `<div class="rec-warn">⚠ ${s.warnings.map(_esc).join(" · ")}</div>` : ""}
+    <div class="rec-asof">Data: ${_esc((s.data_freshness || {}).daily_last_date || "—")} · ${(s.data_freshness || {}).session_age} session(s) old</div>
+  </div>`;
+}
+async function loadRecommend(sym) {
+  const box = $("recommendBox");
+  if (!box) return;
+  let j;
+  try { j = await fetch("/api/system/recommend/stock?symbol=" + encodeURIComponent(sym)).then((r) => r.json()); }
+  catch (e) { box.innerHTML = `<div class="note">System recommendation unavailable (offline).</div>`; return; }
+  if (!j || !j.generated || !j.stock) {
+    box.innerHTML = `<div class="note">No system recommendation on file yet. It runs as an offline batch, independent of the live chart and your manual indicator settings.</div>`;
+    return;
+  }
+  const st = j.stock, styles = st.styles || {}, sp = st.signal_panel || {}, ver = st.verification || {};
+  const wk = sp.weekly_engine || {};
+  const cards = REC_STYLES.map(([k, l]) => recStyleCard(l, styles[k], j.params)).join("");
+  // signal panel: independent systems side-by-side (never merged)
+  const panel = `<div class="rec-panel">
+    <div class="rec-panel-t">Independent systems (shown, never merged or overridden)</div>
+    <div class="rec-panel-row">
+      <span class="rec-chip">Regime (swing): ${_esc((sp.regime || {}).swing || "—")}</span>
+      <span class="rec-chip">Fundamentals: ${_esc(sp.fundamentals || "n/a")}</span>
+      <span class="rec-chip">Valuation: ${_esc(sp.valuation || "n/a")}</span>
+      <span class="rec-chip">Weekly EMA 9/21/50: <b>${_esc(wk.action || "—")}</b></span></div></div>`;
+  const histRows = (j.history_tail || []).slice().reverse().slice(0, 6).map((h) =>
+    `<div class="rec-hrow"><span>${new Date(h.ts).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}</span>
+      <span>${_esc(h.style)}</span><span>${_esc(h.prev_recommendation || "—")} → <b>${_esc(h.new_recommendation)}</b></span></div>`).join("");
+  box.innerHTML = `
+    <div class="rec-intro">Independent system recommendation — built from the data-quality, regime and <b>out-of-sample backtest</b> engines. It is <b>not</b> investment advice, <b>not</b> a probability, and is computed server-side: <b>your manual chart indicator settings never change it</b>. Method <code>${st.methodology_version || ""}</code>.</div>
+    ${panel}
+    <div class="rec-grid">${cards}</div>
+    <div class="rec-verify">Source: ${_esc((st.provenance || {}).provider || "Yahoo")} · <b>independently verified: no</b> · corporate-action verified: no — provenance is kept separate from statistical evidence.</div>
+    ${histRows ? `<div class="rec-hist"><div class="rec-panel-t">Recent recommendation changes</div>${histRows}</div>` : ""}`;
 }
 
 /* ---------- search autocomplete (R-2) ---------- */
@@ -2172,6 +2243,7 @@ async function renderCoveragePage() {
       <span class="cov-warn">"Data available" is <b>not</b> "fully analysed" — optimisation and recommendations are separate and not run in this phase.</span></div>
     <div class="sec-h"><span>Data availability</span></div>
     <div class="cov-statrow">${dataStats}</div>
+    <div id="covRecommend"></div>
     <div id="covOptimize"></div>
     <div id="covRegime"></div>
     <div class="sec-h"><span>Known limitations</span></div>
@@ -2189,8 +2261,36 @@ async function renderCoveragePage() {
         <td class="cov-dim">${COV_LBL[r.recommendation_status] || r.recommendation_status}</td></tr>`).join("")}</tbody>
     </table></div>`;
   setLive();
+  loadCoverageRecommend();
   loadCoverageRegime();
   loadCoverageOptimize();
+}
+/* Phase 4: recommendation status counts per style on the System page. */
+async function loadCoverageRecommend() {
+  const box = $("covRecommend");
+  if (!box) return;
+  let o;
+  try { o = await (await fetch("/api/system/recommend/overview")).json(); }
+  catch (e) { return; }
+  if (!o || o.generated === false) {
+    box.innerHTML = `<div class="sec-h"><span>System recommendations (Phase 4)</span></div>
+      <div class="cov-note">Not generated yet. Run <code>python -m intel.scan_recommend</code>.</div>`;
+    return;
+  }
+  const c = o.counts || {}, p = o.params || {};
+  const LBL = ["STRONG BUY", "BUY", "HOLD", "WAIT", "SELL", "INSUFFICIENT_EVIDENCE"];
+  const SHORT = { "STRONG BUY": "Strong buy", BUY: "Buy", HOLD: "Hold", WAIT: "Wait", SELL: "Sell", INSUFFICIENT_EVIDENCE: "Insufficient" };
+  const CLS = { "STRONG BUY": "ok", BUY: "ok", HOLD: "", WAIT: "", SELL: "no", INSUFFICIENT_EVIDENCE: "near" };
+  const styleRow = (sk, sl) => {
+    const cc = c[sk] || {};
+    return `<div class="opt-regcol"><div class="reg-ctx-l">${sl}</div>
+      ${LBL.map((l) => `<div class="opt-reg"><span>${SHORT[l]}</span><span class="${CLS[l] === "ok" ? "up" : CLS[l] === "no" ? "down" : ""}">${cc[l] || 0}</span></div>`).join("")}</div>`;
+  };
+  box.innerHTML = `
+    <div class="sec-h"><span>System recommendations</span><span class="mk-sub">method ${_esc(o.methodology_version || "")} · per trading style</span></div>
+    <div class="cov-note">Independent, reliability-gated recommendations — <b>not advice, not probabilities</b>. Only <code>AVAILABLE_VALIDATED</code> + fresh + config-level-reliable stocks get an actionable call; everything else is <b>insufficient evidence</b> (fail-closed). Risk ${p.risk_pct}% · max alloc ${p.max_position_pct}% · RR ≥ ${p.rr_buy}/${p.rr_strong} · freshness ≤ ${p.freshness_sessions} sessions.</div>
+    <div class="opt-regrow">${REC_STYLES.map(([k, l]) => styleRow(k, l)).join("")}</div>
+    <div class="cov-note cov-dim">Technical debt: ${(o.technical_debt || []).map(_esc).join(" · ")}</div>`;
 }
 /* Phase 3: optimisation status + config leaderboard on the System page. */
 async function loadCoverageOptimize() {

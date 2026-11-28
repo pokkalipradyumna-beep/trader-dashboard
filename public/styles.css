@@ -970,3 +970,39 @@ button{font-family:inherit}
 .opt-regrow{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:12px}
 .opt-regcol{background:var(--surface);border:1px solid var(--line-soft);border-radius:var(--r-md);padding:10px 12px}
 .opt-regcol .reg-ctx-l{margin-bottom:6px}
+
+/* ===== TIS Phase 4: System recommendation ===== */
+.rec-intro{font-size:13px;color:var(--dim);line-height:1.5;margin-bottom:12px}
+.rec-intro code{background:var(--surface);border:1px solid var(--line-soft);padding:1px 5px;border-radius:5px;font-size:11px;color:var(--faint)}
+.rec-panel{background:var(--surface);border:1px solid var(--line-soft);border-radius:var(--r-md);padding:10px 12px;margin-bottom:12px}
+.rec-panel-t{font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px}
+.rec-panel-row{display:flex;flex-wrap:wrap;gap:6px}
+.rec-chip{font-size:12px;color:var(--dim);background:var(--bg);border:1px solid var(--line-soft);padding:3px 9px;border-radius:999px}
+.rec-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}
+.rec-card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-md);padding:14px}
+.rec-card-h{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.rec-card-h b{font-size:15px}
+.rec-ev{margin-left:auto;font-size:11px;color:var(--faint)}
+.rec-badge{font-size:12px;font-weight:700;padding:3px 10px;border-radius:999px;border:1px solid var(--line-soft)}
+.rec-badge.up{color:var(--buy);background:rgba(34,197,94,.14);border-color:rgba(34,197,94,.35)}
+.rec-badge.down{color:var(--sell);background:rgba(239,68,68,.14);border-color:rgba(239,68,68,.35)}
+.rec-badge.flat{color:var(--dim);background:var(--bg)}
+.rec-badge.muted{color:var(--faint);background:var(--bg)}
+.rec-badge.near{color:var(--warn);background:rgba(234,179,8,.12);border-color:rgba(234,179,8,.3)}
+.rec-badges{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
+.rec-cfg{font-size:12px;color:var(--dim);margin-bottom:8px}
+.rec-trade{display:grid;grid-template-columns:1fr 1fr;gap:1px 14px;margin-bottom:8px}
+.rec-iv{display:flex;justify-content:space-between;font-size:12px;padding:2px 0;border-bottom:1px solid var(--line-soft)}
+.rec-iv span:first-child{color:var(--faint)}
+.rec-iv span:last-child{color:var(--txt);font-variant-numeric:tabular-nums}
+.rec-size{font-size:12px;color:var(--dim);margin-bottom:8px;line-height:1.5}
+.rec-reasons{font-size:11.5px;color:var(--dim);line-height:1.6;margin-bottom:6px}
+.rec-reason{font-size:12.5px;color:var(--dim);margin-bottom:6px}
+.rec-warn{font-size:11.5px;color:var(--warn);line-height:1.5;margin-bottom:6px}
+.rec-dim{font-size:11px;color:var(--faint);line-height:1.5}
+.rec-costs{margin:6px 0}
+.rec-asof{font-size:11px;color:var(--faint);border-top:1px solid var(--line-soft);padding-top:6px;margin-top:4px}
+.rec-verify{font-size:11.5px;color:var(--faint);margin-top:12px;padding:8px 10px;background:var(--bg);border:1px dashed var(--line-soft);border-radius:var(--r-sm)}
+.rec-hist{margin-top:12px}
+.rec-hrow{display:grid;grid-template-columns:70px 90px 1fr;gap:8px;font-size:12px;color:var(--dim);padding:4px 0;border-bottom:1px solid var(--line-soft)}
+@media(max-width:560px){.rec-trade{grid-template-columns:1fr}.rec-hrow{grid-template-columns:60px 70px 1fr}}
