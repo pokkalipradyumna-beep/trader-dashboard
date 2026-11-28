@@ -545,6 +545,23 @@ def _system_read(path, qs):
         if not oc:
             return {"generated": False, "message": "Outcome tracking not generated yet. Run python -m intel.scan_outcomes."}
         return dict(oc, generated=True)
+    # ---- Phase 7: fundamental coverage (read-only) ----
+    if path == "/api/system/fundamentals" or path == "/api/system/fundamentals/overview":
+        fc = store.get_fundamentals_coverage() if store else None
+        if not fc:
+            return {"generated": False, "message": "Fundamental coverage not generated yet. Run python -m intel.scan_fundamentals."}
+        if path == "/api/system/fundamentals/overview":
+            return {k: v for k, v in fc.items() if k != "stocks"} | {"generated": True}
+        return dict(fc, generated=True)
+    if path == "/api/system/fundamentals/stock":
+        sym = (qs.get("symbol") or [""])[0].upper()
+        if not sym:
+            return {"error": "missing symbol"}
+        fc = store.get_fundamentals_coverage() if store else None
+        rec = (fc or {}).get("stocks", {}).get(sym) if fc else None
+        if rec:
+            return {"generated": True, "stock": rec}
+        return {"symbol": sym, "generated": False, "message": "No fundamental coverage record for this symbol."}
     # ---- Phase 6: System monitoring (read-only) ----
     if path == "/api/system/health":
         h = store.get_health() if store else None

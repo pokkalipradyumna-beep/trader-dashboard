@@ -198,6 +198,13 @@ class JsonFileStore(Store):
     def put_outcomes(self, data):
         self._atomic_write(os.path.join(self.root, "outcomes.json"), data)
 
+    # ---- Phase 7: fundamental coverage (single file, derived; source fundamentals.json is read-only) ----
+    def get_fundamentals_coverage(self):
+        return self._read(os.path.join(self.root, "fundamentals_coverage.json"))
+
+    def put_fundamentals_coverage(self, data):
+        self._atomic_write(os.path.join(self.root, "fundamentals_coverage.json"), data)
+
     # ---- shared jsonl reader ----
     def _read_jsonl(self, fname, symbol=None, limit=None):
         path = os.path.join(self.root, fname)
