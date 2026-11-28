@@ -14,6 +14,7 @@ the (infrequent) optimisation cadence and migrate to DbStore past the triggers.
 """
 import json
 import os
+import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 # data/ lives at the repo root (one level up from intel/). Resolve defensively
@@ -62,7 +63,19 @@ class JsonFileStore(Store):
         tmp = path + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(obj, f, separators=(",", ":"))
-        os.replace(tmp, path)  # atomic on same filesystem
+        # os.replace is atomic, but on Windows an AV/OneDrive/indexer can hold a
+        # transient lock on the target and raise PermissionError (WinError 5).
+        # Retry briefly before giving up (fail-closed: tmp is left for the retry).
+        last = None
+        for attempt in range(6):
+            try:
+                os.replace(tmp, path)
+                return
+            except PermissionError as e:  # Windows transient lock
+                last = e
+                time.sleep(0.15 * (attempt + 1))
+        # final attempt: surface the error so the caller can decide
+        os.replace(tmp, path) if last is None else (_ for _ in ()).throw(last)
 
     # ---- universe (summary registry) ----
     def get_universe(self):
@@ -84,6 +97,19 @@ class JsonFileStore(Store):
 
     def put_scan_state(self, data):
         self._atomic_write(os.path.join(self.root, "scan_state.json"), data)
+
+    # ---- Phase 2: market-regime registry (single file) + resumable state ----
+    def get_regime(self):
+        return self._read(os.path.join(self.root, "regime.json"))
+
+    def put_regime(self, data):
+        self._atomic_write(os.path.join(self.root, "regime.json"), data)
+
+    def get_regime_state(self):
+        return self._read(os.path.join(self.root, "regime_state.json"))
+
+    def put_regime_state(self, data):
+        self._atomic_write(os.path.join(self.root, "regime_state.json"), data)
 
     # ---- append-only run log (audit) ----
     def append_run(self, entry):

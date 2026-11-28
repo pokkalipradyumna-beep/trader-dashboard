@@ -48,11 +48,24 @@ LIMITATIONS = [
 
 
 def _load_universe():
+    """Locked symbols.json, DEDUPLICATED to unique tickers (Phase 1 correction).
+
+    symbols.json contains a literal duplicate (HINDUNILVR.NS x2); we keep ALL
+    unique stocks (first occurrence wins) and never add/remove a real stock, so
+    counts reflect the true 201-stock universe instead of double-counting.
+    """
     for p in (os.path.join(ROOT, "symbols.json"), os.path.join(ROOT, "public", "symbols.json")):
         try:
             with open(p, encoding="utf-8") as f:
                 rows = json.load(f)
-            return [(d["t"], d.get("n") or d["t"]) for d in rows if d.get("t")]
+            out, seen = [], set()
+            for d in rows:
+                t = d.get("t")
+                if not t or t.upper() in seen:
+                    continue
+                seen.add(t.upper())
+                out.append((t, d.get("n") or t))
+            return out
         except Exception:  # noqa: BLE001
             continue
     raise SystemExit("symbols.json not found")

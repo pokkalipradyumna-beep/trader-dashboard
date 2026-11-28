@@ -1390,6 +1390,7 @@ function renderDetail(d) {
   // ---- Section 1: Trading signal & technical analysis ----
   let html = `<nav class="d-subnav">
       <button data-anchor="d-analysis" class="active">Analysis</button>
+      <button data-anchor="d-regime">Regime</button>
       <button data-anchor="d-fundamentals">Fundamentals</button>
       <button data-anchor="d-news">News</button></nav>
     <section class="d-sec" id="d-analysis">
@@ -1410,11 +1411,13 @@ function renderDetail(d) {
       <div class="block"><h3>Confluence &amp; momentum</h3>${statusStrip(d.signal_9_21, d.signal_21_50)}${confluenceBlock(d.confluence)}</div>
     </div></section>
     <div id="taSummaryWrap"></div>
-    <section class="d-sec"><h2 class="d-h"><span class="d-num">2</span>Trading perspectives — how to trade this</h2>
+    <section class="d-sec" id="d-regime"><h2 class="d-h"><span class="d-num">2</span>Market regime <span class="d-tag">independent analysis</span></h2>
+      <div id="regimeBox"><div class="scanhint"><span class="spinner"></span>Loading regime analysis…</div></div></section>
+    <section class="d-sec"><h2 class="d-h"><span class="d-num">3</span>Trading perspectives — how to trade this</h2>
       <div id="perspectives"><div class="scanhint"><span class="spinner"></span>Analysing across timeframes…</div></div></section>`;
 
   // ---- Section 2: Fundamentals & quality ----
-  html += `<section class="d-sec" id="d-fundamentals"><h2 class="d-h"><span class="d-num">3</span>Fundamentals &amp; quality</h2><div class="d-grid">`;
+  html += `<section class="d-sec" id="d-fundamentals"><h2 class="d-h"><span class="d-num">4</span>Fundamentals &amp; quality</h2><div class="d-grid">`;
   if (q && q.available) {
     const qcls = { PASS: "ok", NEAR: "near", FAIL: "no" }[q.quality] || "";
     const vcls = { CHEAP: "ok", FAIR: "near", EXPENSIVE: "no" }[q.valuation] || "";
@@ -1431,7 +1434,7 @@ function renderDetail(d) {
   html += `</div></section>`;
 
   // ---- Section 3: Valuation ----
-  html += `<section class="d-sec"><h2 class="d-h"><span class="d-num">4</span>Valuation</h2><div class="d-grid">`;
+  html += `<section class="d-sec"><h2 class="d-h"><span class="d-num">5</span>Valuation</h2><div class="d-grid">`;
   if (val && val.applicable) {
     const up = val.upside_pct;
     const upPill = val.flag
@@ -1453,7 +1456,7 @@ function renderDetail(d) {
   const coName = (q && q.name) || sym.replace(/\.(NS|BO)$/i, "");
   const seg = q && q.type ? (q.type === "bank" ? "Banking / financials" : q.type) : null;
   const infoRow = (l, val2) => `<div class="row"><span>${l}</span><span class="r-v">${val2}</span></div>`;
-  html += `<section class="d-sec"><h2 class="d-h"><span class="d-num">5</span>Company information</h2><div class="d-grid">
+  html += `<section class="d-sec"><h2 class="d-h"><span class="d-num">6</span>Company information</h2><div class="d-grid">
       <div class="block"><h3>Overview</h3>
         ${infoRow("Company", coName)}
         ${infoRow("Symbol", sym)}
@@ -1465,15 +1468,77 @@ function renderDetail(d) {
     </div></section>`;
 
   // ---- Section 6: Latest news (facts only — headline, source, date, link) ----
-  html += `<section class="d-sec" id="d-news"><h2 class="d-h"><span class="d-num">6</span>Latest news</h2>
+  html += `<section class="d-sec" id="d-news"><h2 class="d-h"><span class="d-num">7</span>Latest news</h2>
       <div id="newsBox"><div class="scanhint"><span class="spinner"></span>Loading news…</div></div></section>`;
 
   $("detailPanel").innerHTML = html;
   lastStockData = d;
-  wireDetailSubnav();  // sticky Analysis/Fundamentals/News jump nav
+  wireDetailSubnav();  // sticky Analysis/Regime/Fundamentals/News jump nav
   renderTASummary();   // optional plain-English summary (from selected indicators), when enabled
+  loadRegime(d.symbol);// async: fills the Market-regime section (TIS Phase 2, independent engine)
   loadPerspectives(d); // async: fills the Trading-perspectives section (daily + delayed intraday)
   loadNews(d.symbol);  // async: fills the Latest-news section (Google News RSS, facts only)
+}
+
+/* ---------- Market Regime (TIS Phase 2 — independent engine, read-only) ---------- */
+const REG_TREND = { BULLISH: ["up", "▲ Bullish"], BEARISH: ["down", "▼ Bearish"],
+  SIDEWAYS: ["flat", "→ Sideways"], UNCERTAIN: ["muted", "? Uncertain"] };
+const REG_VOL = { HIGH_VOLATILITY: ["warn", "High volatility"], LOW_VOLATILITY: ["calm", "Low volatility"],
+  NORMAL: ["muted", "Normal volatility"], UNCERTAIN: ["muted", "Vol. uncertain"] };
+const HZ_LABEL = { short_term: "Short-term", swing: "Swing", long_term: "Long-term" };
+
+function regBadge(map, key) {
+  const m = map[key] || ["muted", key || "—"];
+  return `<span class="reg-badge ${m[0]}">${m[1]}</span>`;
+}
+function regCard(hzKey, h) {
+  if (!h) return "";
+  const iv = h.indicators || {};
+  const rev = h.reversal === "POTENTIAL_REVERSAL"
+    ? `<span class="reg-badge rev">⚠ Potential reversal</span>` : "";
+  const ivRow = (l, v, suf) => v == null ? "" : `<div class="reg-iv"><span>${l}</span><span>${v}${suf || ""}</span></div>`;
+  return `<div class="reg-card">
+    <div class="reg-card-h"><b>${HZ_LABEL[hzKey] || hzKey}</b>
+      <span class="reg-meta">${h.interval || "—"} · ${h.bars_used || 0} candles</span></div>
+    <div class="reg-badges">${regBadge(REG_TREND, h.trend)} ${regBadge(REG_VOL, h.volatility)} ${rev}</div>
+    <div class="reg-conf">Evidence strength: <b>${h.confidence || "—"}</b>
+      <span class="reg-dim">(not a calibrated probability)</span></div>
+    <div class="reg-ivs">
+      ${ivRow("Price", iv.price)}${ivRow("EMA" + (iv.ema_fast_period || ""), iv.ema_fast)}${ivRow("EMA" + (iv.ema_slow_period || ""), iv.ema_slow)}
+      ${ivRow("ADX", iv.adx)}${ivRow("RSI", iv.rsi)}${ivRow("ATR%", iv.atr_pct)}${ivRow("MACD hist", iv.macd_hist)}
+      ${ivRow("Support", iv.support)}${ivRow("Resistance", iv.resistance)}</div>
+    <div class="reg-reasons">${(h.reasons || []).map((r) => `<div>• ${r}</div>`).join("")}</div>
+    <div class="reg-asof">Last completed candle: ${h.last_candle || "—"} · data ${h.data_status || "—"}</div>
+  </div>`;
+}
+async function loadRegime(sym) {
+  const box = $("regimeBox");
+  if (!box) return;
+  let j;
+  try { j = await fetch("/api/system/regime/stock?symbol=" + encodeURIComponent(sym)).then((r) => r.json()); }
+  catch (e) { box.innerHTML = `<div class="note">Regime analysis unavailable (offline).</div>`; return; }
+  if (!j || !j.generated || !j.stock) {
+    box.innerHTML = `<div class="note">No regime analysis on file for this stock yet. The regime engine runs as an offline batch (independent of the weekly trading signal).</div>`;
+    return;
+  }
+  const st = j.stock, hz = st.horizons || {};
+  if (st.unsupported || !Object.keys(hz).length) {
+    box.innerHTML = `<div class="note">${st.note || "Regime not available for this symbol (data unsupported)."}</div>`;
+    return;
+  }
+  const mkt = j.market || {};
+  const mktSwing = (mkt.horizons || {}).swing || {};
+  const mktBanner = mkt.available
+    ? `<div class="reg-context"><div class="reg-ctx-item"><span class="reg-ctx-l">Market-wide (${mkt.name || "Nifty 50"})</span>
+         ${regBadge(REG_TREND, mktSwing.trend)} ${regBadge(REG_VOL, mktSwing.volatility)}</div>
+       <div class="reg-ctx-item"><span class="reg-ctx-l">Sector</span><span class="reg-badge muted">Not available this phase</span></div>
+       <div class="reg-ctx-item"><span class="reg-ctx-l">This stock (swing)</span>
+         ${regBadge(REG_TREND, (hz.swing || {}).trend)} ${regBadge(REG_VOL, (hz.swing || {}).volatility)}</div></div>`
+    : `<div class="note">Market-wide index context unavailable this run.</div>`;
+  box.innerHTML = `
+    <div class="reg-intro">Independent, rule-based regime read — <b>separate from</b> the weekly 9/21/50 trading signal above. Trend and volatility are classified separately; reversal needs ≥2 supporting signals. Method <code>${st.methodology_version || j.methodology_version || ""}</code>.</div>
+    ${mktBanner}
+    <div class="reg-grid">${["short_term", "swing", "long_term"].map((k) => regCard(k, hz[k])).join("")}</div>`;
 }
 
 /* ---------- search autocomplete (R-2) ---------- */
@@ -2044,6 +2109,7 @@ async function renderCoveragePage() {
       ${stat(opt.COMPLETED || 0, "Optimisation: completed", "ok")}
       ${stat((rec.AVAILABLE || 0), "Recommendation: available", "ok")}
       ${stat((rec.NONE || 0), "Recommendation: none")}</div>
+    <div id="covRegime"></div>
     <div class="sec-h"><span>Known limitations</span></div>
     <ul class="cov-lim">${(uni.limitations || []).map((x) => `<li>${_esc(x)}</li>`).join("")}</ul>
     <div class="sec-h"><span>Per-stock status</span><span class="mk-sub">${rows.length} stocks</span></div>
@@ -2059,6 +2125,44 @@ async function renderCoveragePage() {
         <td class="cov-dim">${COV_LBL[r.recommendation_status] || r.recommendation_status}</td></tr>`).join("")}</tbody>
     </table></div>`;
   setLive();
+  loadCoverageRegime();
+}
+/* Phase 2: regime overview on the System page — market-wide vs sector vs the
+   universe-wide distribution of individual-stock regimes (swing horizon). */
+async function loadCoverageRegime() {
+  const box = $("covRegime");
+  if (!box) return;
+  let r;
+  try { r = await (await fetch("/api/system/regime/overview")).json(); }
+  catch (e) { return; }
+  if (!r || r.generated === false) {
+    box.innerHTML = `<div class="sec-h"><span>Market regime (Phase 2)</span></div>
+      <div class="cov-note">Regime engine not generated yet. Run <code>python -m intel.scan_regime</code>.</div>`;
+    return;
+  }
+  const mkt = r.market || {}, mh = (mkt.horizons || {});
+  const t = r.swing_tally || {}, tr = t.trend || {}, vo = t.volatility || {}, rv = t.reversal || {};
+  const mrow = (hz) => {
+    const h = mh[hz] || {};
+    return `<div class="reg-ctx-item"><span class="reg-ctx-l">${HZ_LABEL[hz] || hz}</span>
+      ${regBadge(REG_TREND, h.trend)} ${regBadge(REG_VOL, h.volatility)}</div>`;
+  };
+  const chip = (map, k, n) => `<span class="reg-chip">${(map[k] ? map[k][1] : k)}: <b>${n}</b></span>`;
+  box.innerHTML = `
+    <div class="sec-h"><span>Market regime</span><span class="mk-sub">method ${_esc(r.methodology_version || "")} · ${r.evaluated || 0}/${r.universe_size || 0} evaluated</span></div>
+    <div class="cov-note">Independent, rule-based regime engine — <b>separate</b> from the weekly trading signal. Three distinct dimensions (trend · volatility · reversal); evidence-strength only, <b>not</b> calibrated probabilities. "Data available" still ≠ "fully analysed".</div>
+    <div class="reg-ov-grid">
+      <div class="reg-ov-card"><h4>Market-wide — ${_esc(mkt.name || "Nifty 50")}</h4>
+        ${mkt.available ? ["short_term", "swing", "long_term"].map(mrow).join("") : '<div class="cov-dim">Index data unavailable this run.</div>'}</div>
+      <div class="reg-ov-card"><h4>Sector</h4>
+        <div class="cov-dim">${_esc((r.sector || {}).note || "Not available this phase.")}</div>
+        <span class="reg-badge muted">Not computed (no sector constituents)</span></div>
+      <div class="reg-ov-card"><h4>Individual stocks — swing distribution</h4>
+        <div class="reg-chips">${["BULLISH", "BEARISH", "SIDEWAYS", "UNCERTAIN"].map((k) => chip(REG_TREND, k, tr[k] || 0)).join("")}</div>
+        <div class="reg-chips">${["HIGH_VOLATILITY", "LOW_VOLATILITY", "NORMAL"].map((k) => chip(REG_VOL, k, vo[k] || 0)).join("")}</div>
+        <div class="reg-chips"><span class="reg-chip">⚠ Potential reversal: <b>${rv.POTENTIAL_REVERSAL || 0}</b></span></div></div>
+    </div>
+    <div class="cov-note cov-dim">Technical debt (recorded, not discarded): ${(r.technical_debt || []).map(_esc).join(" · ")}</div>`;
 }
 if ($("refreshCoverage")) $("refreshCoverage").addEventListener("click", () => withBtnLoading($("refreshCoverage"), "Refreshing…", renderCoveragePage));
 

@@ -424,6 +424,36 @@ def _system_read(path, qs):
         rec = store.get_stock(sym) if store else None
         return rec or {"symbol": sym, "generated": False,
                        "message": "No data-quality record yet for this stock."}
+    # ---- Phase 2: Market Regime Engine (read-only, Phase 3/4 consume these) ----
+    if path == "/api/system/regime" or path == "/api/system/regime/overview":
+        reg = store.get_regime() if store else None
+        if not reg:
+            return {"generated": False,
+                    "message": "Regime scan not generated yet. Run python -m intel.scan_regime."}
+        if path == "/api/system/regime/overview":
+            return {"generated": True, "generated_at": reg.get("generated_at"),
+                    "methodology_version": reg.get("methodology_version"),
+                    "universe_size": reg.get("universe_size"), "evaluated": reg.get("evaluated"),
+                    "insufficient_or_uncertain": reg.get("insufficient_or_uncertain"),
+                    "swing_tally": reg.get("swing_tally"), "market": reg.get("market"),
+                    "sector": reg.get("sector"), "limitations": reg.get("limitations"),
+                    "technical_debt": reg.get("technical_debt")}
+        # full registry WITHOUT the heavy per-stock map (keep payload small)
+        light = {k: v for k, v in reg.items() if k != "stocks"}
+        light["generated"] = True
+        light["symbols"] = sorted((reg.get("stocks") or {}).keys())
+        return light
+    if path == "/api/system/regime/stock":
+        sym = (qs.get("symbol") or [""])[0]
+        if not sym:
+            return {"error": "missing symbol"}
+        reg = store.get_regime() if store else None
+        rec = (reg or {}).get("stocks", {}).get(sym.upper()) if reg else None
+        if rec:
+            return {"generated": True, "methodology_version": (reg or {}).get("methodology_version"),
+                    "market": (reg or {}).get("market"), "stock": rec}
+        return {"symbol": sym, "generated": False,
+                "message": "No regime record yet for this stock."}
     return {"error": "unknown system endpoint"}
 
 
