@@ -219,6 +219,13 @@ class JsonFileStore(Store):
     def put_outlook(self, data):
         self._atomic_write(os.path.join(self.root, "outlook.json"), data)
 
+    # ---- Commodities Intelligence (separate from the stock system) ----
+    def get_commodities(self):
+        return self._read(os.path.join(self.root, "commodities.json"))
+
+    def put_commodities(self, data):
+        self._atomic_write(os.path.join(self.root, "commodities.json"), data)
+
     # ---- shared jsonl reader ----
     def _read_jsonl(self, fname, symbol=None, limit=None):
         path = os.path.join(self.root, fname)

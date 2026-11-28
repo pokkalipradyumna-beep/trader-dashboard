@@ -48,14 +48,15 @@ JOBS = {
     "news":      ("intel.scan_news", ["--fresh"], []),
     "outcomes":  ("intel.scan_outcomes", [], []),
     "outlook":   ("intel.scan_outlook", [], ["regime"]),
+    "commodities": ("intel.scan_commodities", [], []),
 }
 MODES = {
     # daily: keep recommendations fresh; reuse the weekly optimisation (do NOT
     # re-optimise every day — Phase 3 results change slowly).
-    "daily": ["regime", "recommend", "news", "outcomes", "outlook"],
+    "daily": ["regime", "recommend", "news", "outcomes", "outlook", "commodities"],
     # weekly: full refresh incl. data coverage + optimisation.
-    "weekly": ["data", "optimize", "regime", "recommend", "news", "outcomes", "outlook"],
-    "full": ["data", "regime", "optimize", "recommend", "news", "outcomes", "outlook"],
+    "weekly": ["data", "optimize", "regime", "recommend", "news", "outcomes", "outlook", "commodities"],
+    "full": ["data", "regime", "optimize", "recommend", "news", "outcomes", "outlook", "commodities"],
 }
 
 

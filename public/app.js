@@ -65,7 +65,7 @@ function showPage(name) {
   document.title = (name === "search" && currentSym) ? currentSym.replace(".NS", "") + " · Trader"
     : (PAGE_TITLES[name] ? PAGE_TITLES[name] + " · Trader" : "Trader");
   if (name === "search" && !chartReady) initChart();
-  if (name === "home") loadHome();
+  if (name === "home") { loadHome(); loadCommoditiesHome(); }
   if (name === "dashboard") loadHoldings();
   if (name === "watchlist") loadWatchlist();
   if (name === "screeners") loadScreeners();
@@ -75,6 +75,7 @@ function showPage(name) {
   if (name === "compare") loadCompare();
   if (name === "settings") renderSettingsPage();
   if (name === "coverage") renderCoveragePage();
+  if (name === "commodities") loadCommoditiesPage();
   if (name === "search" && chartReady && chart) setTimeout(fitChart, 30);
 }
 document.querySelectorAll(".navlink,.side-link").forEach((b) =>
@@ -1549,6 +1550,122 @@ async function loadOutlook(sym) {
     <div class="ol-disc">${_esc(st.disclaimer || "")}</div>`;
 }
 
+/* ---------- Commodities Intelligence (separate engine, read-only) ---------- */
+const CMD_REC = { "BUY": "buy", "STRONG BUY": "buy", "HOLD": "hold", "WAIT": "wait", "SELL": "sell", "INSUFFICIENT EVIDENCE": "muted" };
+const CMD_KIND = { metal: "Metal", energy: "Energy", agri: "Agri", etf: "ETF" };
+let COMMODITIES_CACHE = null;
+function cmdFmt(v, cur) {
+  if (v == null) return "—";
+  const n = cur === "INR" ? "₹" : cur === "USD" ? "$" : "";
+  return n + (Math.abs(v) >= 1000 ? Math.round(v).toLocaleString("en-IN") : (Math.round(v * 100) / 100));
+}
+function cmdTile(c) {
+  const s = c.snapshot || {};
+  const chg = s.change_pct;
+  const chgCls = chg == null ? "" : chg >= 0 ? "up" : "down";
+  const sw = (c.horizons || {}).swing || {};
+  const rec = sw.recommendation || "—";
+  const stale = s.stale ? `<span class="cmd-stale" title="Last data ${s.age_days} days old">⚠ stale</span>` : "";
+  return `<button class="cmd-tile" data-sym="${_esc(c.symbol)}" type="button">
+    <div class="cmd-tile-h"><span class="cmd-name">${_esc(c.name)}</span><span class="cmd-kind">${CMD_KIND[c.kind] || c.kind}</span></div>
+    <div class="cmd-price">${cmdFmt(s.price, c.currency)} <span class="cmd-unit">${_esc(c.unit)}</span></div>
+    <div class="cmd-row"><span class="cmd-chg ${chgCls}">${chg == null ? "—" : (chg >= 0 ? "▲ +" : "▼ ") + chg + "%"}</span>
+      <span class="cmd-rec ${CMD_REC[rec] || "muted"}">${_esc(rec)}</span></div>
+    <div class="cmd-meta">Prev ${cmdFmt(s.previous_close, c.currency)} · ${_esc(s.last_session || "—")} ${stale}</div>
+  </button>`;
+}
+async function loadCommoditiesHome() {
+  const box = $("homeCommodities");
+  if (!box) return;
+  let j;
+  try { j = await fetch("/api/system/commodities").then((r) => r.json()); }
+  catch (e) { box.innerHTML = `<div class="note">Commodity prices unavailable (offline).</div>`; return; }
+  if (!j || !j.generated || !j.commodities) {
+    box.innerHTML = `<div class="note">Commodity data not generated yet.</div>`; return;
+  }
+  COMMODITIES_CACHE = j;
+  // Home shows a curated headline set first (gold, silver, crude, natgas, copper) + one ETF.
+  const order = ["GC=F", "SI=F", "CL=F", "NG=F", "HG=F", "GOLDBEES.NS"];
+  const list = order.map((s) => j.commodities[s]).filter(Boolean);
+  const asof = j.generated_at ? new Date(j.generated_at).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "—";
+  box.innerHTML = list.map(cmdTile).join("") +
+    `<div class="cmd-asof">Source: Yahoo (delayed) · updated ${asof} · <button class="cmd-openall" data-page="commodities" type="button">see all ${j.instrument_count} →</button></div>`;
+  box.querySelectorAll(".cmd-tile").forEach((b) => b.addEventListener("click", () => { showPage("commodities"); setTimeout(() => openCommodity(b.dataset.sym), 60); }));
+  const oa = box.querySelector(".cmd-openall"); if (oa) oa.addEventListener("click", () => showPage("commodities"));
+}
+async function loadCommoditiesPage() {
+  const box = $("commoditiesBody");
+  if (!box) return;
+  if (!COMMODITIES_CACHE) {
+    try { COMMODITIES_CACHE = await fetch("/api/system/commodities").then((r) => r.json()); }
+    catch (e) { box.innerHTML = `<div class="note">Commodities unavailable (offline).</div>`; return; }
+  }
+  const j = COMMODITIES_CACHE;
+  if (!j || !j.generated) { box.innerHTML = `<div class="note">Commodity data not generated yet.</div>`; return; }
+  renderCommodityGrid("");
+}
+function renderCommodityGrid(q) {
+  const box = $("commoditiesBody"), j = COMMODITIES_CACHE;
+  if (!box || !j) return;
+  const ql = (q || "").toLowerCase().trim();
+  let list = Object.values(j.commodities);
+  if (ql) list = list.filter((c) => (c.name + " " + c.symbol + " " + c.kind + " " + (c.tracks || "")).toLowerCase().includes(ql));
+  const groups = [["metal", "Metals"], ["energy", "Energy"], ["agri", "Agriculture"], ["etf", "ETFs (NSE · INR)"]];
+  let html = "";
+  for (const [k, label] of groups) {
+    const items = list.filter((c) => c.kind === k);
+    if (!items.length) continue;
+    html += `<div class="cmd-grp-h">${label}</div><div class="cmd-grid">${items.map(cmdTile).join("")}</div>`;
+  }
+  box.innerHTML = html || `<div class="empty">No commodities match “${_esc(q)}”.</div>`;
+  box.querySelectorAll(".cmd-tile").forEach((b) => b.addEventListener("click", () => openCommodity(b.dataset.sym)));
+}
+function openCommodity(sym) {
+  const j = COMMODITIES_CACHE; if (!j) return;
+  const c = (j.commodities || {})[sym]; if (!c) return;
+  const det = $("commodityDetail"), body = $("commoditiesBody");
+  if (body) body.classList.add("hidden");
+  det.classList.remove("hidden");
+  const s = c.snapshot || {};
+  const chg = s.change_pct, chgCls = chg == null ? "" : chg >= 0 ? "up" : "down";
+  const cards = ["short_term", "swing", "long_term"].map((hz) => commodityCard(hz, c.horizons[hz])).join("");
+  const macro = (c.macro_factors || []).map((f) =>
+    `<div class="cmd-macro"><b>${_esc(f.factor)}</b> <span class="cmd-stance">${_esc(f.stance)}</span><div>${_esc(f.detail)}</div></div>`).join("");
+  const etf = c.etf_context ? `<div class="cmd-etf"><div class="ol-evlbl">ETF context</div>
+    <div class="cmd-macro"><b>Tracks:</b> ${_esc(c.etf_context.tracks || "—")} · <b>Liquidity:</b> ${_esc(c.etf_context.liquidity || "—")}${c.etf_context.avg_daily_volume_20d != null ? " (avg vol " + c.etf_context.avg_daily_volume_20d.toLocaleString("en-IN") + ")" : ""}<div>${_esc(c.etf_context.note)}</div></div></div>` : "";
+  det.innerHTML = `<button class="cmd-back" type="button">← All commodities</button>
+    <div class="cmd-dhead">
+      <div><div class="cmd-dname">${_esc(c.name)} <span class="cmd-kind">${CMD_KIND[c.kind] || c.kind}</span></div>
+        <div class="cmd-dprice">${cmdFmt(s.price, c.currency)} <span class="cmd-unit">${_esc(c.unit)}</span>
+          <span class="cmd-chg ${chgCls}">${chg == null ? "" : (chg >= 0 ? "▲ +" : "▼ ") + chg + "%"}</span></div></div>
+      <button class="btn ghost sm cmd-chartbtn" type="button">View chart →</button></div>
+    <div class="cmd-dmeta">Prev close ${cmdFmt(s.previous_close, c.currency)} · last session ${_esc(s.last_session || "—")} · <b>${_esc(s.market_status || "")}</b> · source Yahoo (delayed) · ${s.stale ? '<span class="cmd-stale">⚠ data is stale</span>' : "fresh"}</div>
+    <div class="cmd-intro">Technical, evidence-based outlook across three horizons — reuses the same regime engine as stocks, with <b>no stock fundamentals</b> applied. ${_esc(c.disclaimer || "")}</div>
+    <div class="ol-grid">${cards}</div>
+    ${macro ? `<div class="cmd-sec"><div class="ol-evlbl">Macro factors (free data only)</div>${macro}</div>` : ""}
+    ${etf ? `<div class="cmd-sec">${etf}</div>` : ""}`;
+  det.querySelector(".cmd-back").addEventListener("click", () => { det.classList.add("hidden"); if (body) body.classList.remove("hidden"); });
+  det.querySelector(".cmd-chartbtn").addEventListener("click", () => { loadStock(sym, "D"); });
+  window.scrollTo(0, 0);
+}
+function commodityCard(hzKey, o) {
+  if (!o) return "";
+  const d = OUTLOOK_DIR[o.direction] || ["muted", o.direction];
+  const s = OUTLOOK_STR[o.evidence_strength] || ["muted", o.evidence_strength];
+  const rec = o.recommendation || "—";
+  const label = { short_term: "Short-term", swing: "Swing", long_term: "Long-term" }[hzKey] || hzKey;
+  return `<div class="ol-card">
+    <div class="ol-card-h"><b>${label}</b><span class="cmd-rec ${CMD_REC[rec] || "muted"}">${_esc(rec)}</span></div>
+    <div class="ol-badges"><span class="ol-dir ${d[0]}">${d[1]}</span><span class="ol-str ${s[0]}">Evidence: ${s[1]}</span></div>
+    <div class="cmd-recwhy">${_esc(o.recommendation_reason || "")}</div>
+    ${outlookItems("Supporting", o.supporting, "ok")}
+    ${outlookItems("Contradicting", o.contradicting, "no")}
+    ${outlookItems("Risks", o.risks, "warn")}
+    ${o.invalidation && o.invalidation.length ? `<div class="ol-evgrp"><div class="ol-evlbl">What would change it</div>${o.invalidation.map((t) => `<div class="ol-ev">${_esc(t)}</div>`).join("")}</div>` : ""}
+    <div class="ol-asof">Last candle: ${_esc(o.last_candle || "—")} · ${_esc(o.interval || "")} · ${_esc(o.data_status || "")}</div>
+  </div>`;
+}
+
 /* ---------- Market Regime (TIS Phase 2 — independent engine, read-only) ---------- */
 const REG_TREND = { BULLISH: ["up", "▲ Bullish"], BEARISH: ["down", "▼ Bearish"],
   SIDEWAYS: ["flat", "→ Sideways"], UNCERTAIN: ["muted", "? Uncertain"] };
@@ -2553,6 +2670,8 @@ async function loadCoverageRegime() {
     <div class="cov-note cov-dim">Technical debt (recorded, not discarded): ${(r.technical_debt || []).map(_esc).join(" · ")}</div>`;
 }
 if ($("refreshCoverage")) $("refreshCoverage").addEventListener("click", () => withBtnLoading($("refreshCoverage"), "Refreshing…", renderCoveragePage));
+if ($("cmdSearch")) $("cmdSearch").addEventListener("input", (e) => { const d = $("commodityDetail"); if (d) d.classList.add("hidden"); const b = $("commoditiesBody"); if (b) b.classList.remove("hidden"); renderCommodityGrid(e.target.value); });
+if ($("refreshCommodities")) $("refreshCommodities").addEventListener("click", () => withBtnLoading($("refreshCommodities"), "Refreshing…", async () => { COMMODITIES_CACHE = null; await loadCommoditiesPage(); }));
 
 /* ---------- Phase 0: backup / restore + data health ---------- */
 // Every piece of your data that lives only in this browser. Export/restore keeps

@@ -1080,3 +1080,45 @@ button{font-family:inherit}
 .ol-limits{font-size:11.5px;color:var(--dim);margin-top:12px;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 14px}
 .ol-limits ul{margin:5px 0 0;padding-left:18px} .ol-limits li{margin:2px 0}
 .ol-disc{font-size:10.5px;color:var(--faint);margin:10px 0 12px;font-style:italic}
+
+/* ---------- Commodities Intelligence ---------- */
+.cmd-sec-h{margin-top:24px}
+.cmd-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px;margin-bottom:6px}
+.cmd-tile{text-align:left;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:13px 14px;cursor:pointer;font-family:inherit;color:var(--txt);transition:border-color .12s,transform .12s}
+.cmd-tile:hover{border-color:rgba(var(--accent-rgb),.5);transform:translateY(-1px)}
+.cmd-tile-h{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px}
+.cmd-name{font-weight:700;font-size:13.5px}
+.cmd-kind{font-size:9.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--faint);background:var(--surface2);padding:2px 7px;border-radius:999px}
+.cmd-price{font-size:17px;font-weight:700;margin-bottom:7px}
+.cmd-unit{font-size:10.5px;color:var(--faint);font-weight:500}
+.cmd-row{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px}
+.cmd-chg{font-size:12.5px;font-weight:700}
+.cmd-chg.up{color:var(--buy)} .cmd-chg.down{color:var(--sell)}
+.cmd-rec{font-size:10.5px;font-weight:700;padding:3px 9px;border-radius:999px;border:1px solid var(--line)}
+.cmd-rec.buy{color:var(--buy);background:rgba(16,185,129,.1);border-color:rgba(16,185,129,.3)}
+.cmd-rec.sell{color:var(--sell);background:rgba(239,68,68,.1);border-color:rgba(239,68,68,.3)}
+.cmd-rec.hold{color:var(--hold);background:rgba(37,99,235,.1);border-color:rgba(37,99,235,.3)}
+.cmd-rec.wait{color:var(--warn);background:rgba(245,158,11,.1);border-color:rgba(245,158,11,.3)}
+.cmd-rec.muted{color:var(--faint)}
+.cmd-meta{font-size:10.5px;color:var(--faint)}
+.cmd-stale{color:var(--warn);font-weight:700;margin-left:4px}
+.cmd-asof{grid-column:1/-1;font-size:11px;color:var(--faint);margin-top:4px}
+.cmd-openall,.cmd-chartbtn{background:none;border:none;color:var(--accent);cursor:pointer;font-family:inherit;font-size:inherit;padding:0}
+.cmd-grp-h{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);margin:18px 0 9px}
+.cmd-search{margin-bottom:8px}
+.cmd-detail{margin-top:6px}
+.cmd-back{background:none;border:1px solid var(--line);color:var(--dim);border-radius:9px;padding:6px 12px;cursor:pointer;font-family:inherit;font-size:12px;margin-bottom:14px}
+.cmd-back:hover{color:var(--txt);border-color:var(--accent)}
+.cmd-dhead{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:6px}
+.cmd-dname{font-size:20px;font-weight:800}
+.cmd-dprice{font-size:22px;font-weight:800;margin-top:4px}
+.cmd-dprice .cmd-chg{font-size:14px;margin-left:8px}
+.cmd-dmeta{font-size:11.5px;color:var(--dim);margin-bottom:12px}
+.cmd-intro{font-size:12.5px;color:var(--dim);line-height:1.5;margin-bottom:14px}
+.cmd-recwhy{font-size:11.5px;color:var(--txt);line-height:1.45;margin-bottom:9px;padding:7px 9px;background:var(--surface2);border-radius:8px}
+.cmd-sec{margin-top:16px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:13px 15px}
+.cmd-macro{font-size:12px;color:var(--txt);line-height:1.5;margin-bottom:9px}
+.cmd-macro:last-child{margin-bottom:0}
+.cmd-macro div{color:var(--dim);font-size:11.5px;margin-top:2px}
+.cmd-stance{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--accent);margin-left:4px}
+.cmd-etf .ol-evlbl{margin-bottom:7px}

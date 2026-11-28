@@ -590,6 +590,22 @@ def _system_read(path, qs):
         rec = (ol_doc or {}).get("stocks", {}).get(sym) if ol_doc else None
         return {"generated": True, "stock": rec} if rec else {"symbol": sym, "generated": False,
                 "message": "No predictive outlook for this symbol yet."}
+    # ---- Commodities Intelligence (read-only, separate engine) ----
+    if path == "/api/system/commodities" or path == "/api/system/commodities/overview":
+        cm_doc = store.get_commodities() if store else None
+        if not cm_doc:
+            return {"generated": False, "message": "Commodities not generated yet. Run python -m intel.scan_commodities."}
+        if path == "/api/system/commodities/overview":
+            return {k: v for k, v in cm_doc.items() if k != "commodities"} | {"generated": True}
+        return dict(cm_doc, generated=True)
+    if path == "/api/system/commodities/stock":
+        cm_doc = store.get_commodities() if store else None
+        sym = (qs.get("symbol") or [""])[0].upper()
+        if not sym:
+            return {"error": "missing symbol"}
+        rec = (cm_doc or {}).get("commodities", {}).get(sym) if cm_doc else None
+        return {"generated": True, "commodity": rec} if rec else {"symbol": sym, "generated": False,
+                "message": "No commodity record for this symbol."}
     # ---- Phase 6: System monitoring (read-only) ----
     if path == "/api/system/health":
         h = store.get_health() if store else None

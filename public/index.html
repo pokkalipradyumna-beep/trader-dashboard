@@ -24,6 +24,7 @@
         <button class="side-link active" data-page="home"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg><span>Markets</span></button>
         <button class="side-link" data-page="screeners"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 3 8l9 5 9-5-9-5z"/><path d="M3 13l9 5 9-5"/></svg><span>Screener</span></button>
         <button class="side-link" data-page="watchlist"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12v18l-6-4-6 4V3z"/></svg><span>Watchlist</span></button>
+        <button class="side-link" data-page="commodities"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><path d="M12 7v10M9 9.5h4.5a1.5 1.5 0 0 1 0 3H9h4.5a1.5 1.5 0 0 1 0 3H9"/></svg><span>Commodities</span></button>
         <button class="side-link" data-page="compare"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V6M4 6l4-3 8 3 4-3v14l-4 3-8-3-4 3"/><path d="M8 3v14M16 6v14"/></svg><span>Compare</span><span class="nav-badge hidden" id="cmpNavBadge"></span></button>
         <div class="nav-group">Manage</div>
         <button class="side-link" data-page="dashboard"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"/><path d="M5 21V8l5-4 5 4"/><path d="M15 21V12l4-2v11"/></svg><span>Portfolio</span></button>
@@ -99,6 +100,10 @@
           </div>
           <div id="homeFilters" class="filterwrap hidden"></div>
           <div id="homeCards" class="stocklist"></div>
+
+          <!-- COMMODITIES INTELLIGENCE (always visible on home) -->
+          <div class="sec-h cmd-sec-h"><span><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-3px;margin-right:6px"><circle cx="12" cy="12" r="8"/><path d="M12 7v10M9 9.5h4.5a1.5 1.5 0 0 1 0 3H9h4.5a1.5 1.5 0 0 1 0 3H9"/></svg>Commodities Intelligence</span><button class="sec-link" data-page="commodities" type="button">Open all →</button></div>
+          <div id="homeCommodities" class="cmd-grid"><div class="scanhint"><span class="spinner"></span>Loading commodity prices…</div></div>
         </section>
 
         <!-- SEARCH -->
@@ -172,6 +177,19 @@
             <button id="refreshWatch" class="btn ghost">↻ Refresh</button>
           </div>
           <div id="watchCards" class="cards"></div>
+        </section>
+
+        <!-- COMMODITIES -->
+        <section id="page-commodities" class="page">
+          <div class="pagehead">
+            <div><h1>Commodities</h1><p class="sub">Gold, silver, energy, metals and Indian gold/silver ETFs — technical outlook &amp; recommendations, independent of the stock engine. <span class="liveago"></span></p></div>
+            <button id="refreshCommodities" class="btn ghost">↻ Refresh</button>
+          </div>
+          <div class="searchwrap cmd-search">
+            <input id="cmdSearch" class="searchbox" placeholder="Search commodities &amp; ETFs — e.g. gold, silver, crude, Tata" autocomplete="off" />
+          </div>
+          <div id="commoditiesBody"><div class="scanhint"><span class="spinner"></span>Loading commodities…</div></div>
+          <div id="commodityDetail" class="cmd-detail hidden"></div>
         </section>
 
         <!-- SCREENERS -->
