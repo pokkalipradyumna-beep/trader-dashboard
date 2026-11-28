@@ -113,7 +113,12 @@ def _write_summary(store, events, run_date, failed_fetch):
         "actionable_events": len(actionable),
         "by_horizon": per_h,
         "fetch_failures_this_run": failed_fetch,
-        "rows": oc.summarise(recs),
+        "trade_simulations": {
+            "entry_candidate_events": sum(1 for e in events if e.get("new_recommendation") in oc.ACTIONABLE),
+            "note": "Only BUY / STRONG BUY can be simulated trades. HOLD entries are not recorded "
+                    "(no entry price), WAIT / SELL / INSUFFICIENT EVIDENCE are not trades.",
+        },
+        **oc.summarise(recs),
         "min_sample": oc.MIN_SAMPLE,
         "horizons_sessions": list(oc.HORIZONS),
         "limitations": LIMITATIONS,

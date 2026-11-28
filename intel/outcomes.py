@@ -92,30 +92,68 @@ def evaluate_event(event, bars, run_date, has_adjclose=True, horizons=HORIZONS):
     return out
 
 
+# Interpretation categories (derived at summary time; stored records are never edited).
+#  entry_candidate : BUY / STRONG BUY. Only these can be simulated TRADES.
+#  state_observation: HOLD. Position entry is NOT recorded, so it cannot be rebuilt
+#                    as a trade: descriptive forward price observation only.
+#  observation     : WAIT, SELL (exit/avoid), INSUFFICIENT_EVIDENCE. Not trades.
+CATEGORY = {"STRONG BUY": "entry_candidate", "BUY": "entry_candidate",
+            "HOLD": "state_observation", "WAIT": "observation",
+            "SELL": "observation", "INSUFFICIENT_EVIDENCE": "observation"}
+
+
+def _median(xs):
+    s = sorted(xs)
+    n = len(s)
+    return s[n // 2] if n % 2 else (s[n // 2 - 1] + s[n // 2]) / 2
+
+
 def summarise(records):
-    """Aggregate EVALUATED records per (label, style, horizon). Sample size is
-    always shown; buckets below MIN_SAMPLE are flagged, not interpreted."""
-    buckets = {}
+    """Return {"trade_stats": [...], "observations": [...]}.
+
+    trade_stats   : ONLY entry_candidate events (BUY / STRONG BUY). Win rate,
+                    profit factor and expectancy are computed here and nowhere else.
+    observations  : every other label. Descriptive forward price moves only: no
+                    win rate, no profit factor, no 'trade' wording.
+    Buckets under MIN_SAMPLE are flagged and must not be interpreted.
+    """
+    trades, obs = {}, {}
     for r in records:
         if r.get("status") != "EVALUATED":
             continue
-        k = (r["label"], r["style"], r["horizon"])
-        buckets.setdefault(k, []).append(r)
-    rows = []
-    for (label, style, h), rs in sorted(buckets.items()):
+        cat = CATEGORY.get(r.get("label"), "observation")
+        if cat == "entry_candidate":
+            trades.setdefault((r["label"], r["style"], r["horizon"]), []).append(r)
+        else:
+            obs.setdefault((r["label"], r["style"], r["horizon"]), []).append(r)
+
+    trade_rows = []
+    for (label, style, h), rs in sorted(trades.items()):
         rets = [x["return_pct"] for x in rs]
         wins = [x for x in rets if x > 0]
         losses = [x for x in rets if x < 0]
-        pf = (round(sum(wins) / abs(sum(losses)), 3) if losses else None)
-        rows.append({
-            "label": label, "style": style, "horizon_sessions": h, "n": len(rs),
+        trade_rows.append({
+            "label": label, "style": style, "horizon_sessions": h, "n_trades": len(rs),
             "sufficient_sample": len(rs) >= MIN_SAMPLE,
-            "mean_return_pct": round(sum(rets) / len(rets), 4),
             "win_rate_pct": round(100.0 * len(wins) / len(rets), 2),
+            "expectancy_pct": round(sum(rets) / len(rets), 4),
             "avg_win_pct": round(sum(wins) / len(wins), 4) if wins else None,
             "avg_loss_pct": round(sum(losses) / len(losses), 4) if losses else None,
-            "profit_factor": pf,
+            "profit_factor": round(sum(wins) / abs(sum(losses)), 3) if losses else None,
             "mean_mfe_pct": round(sum(x["mfe_pct"] for x in rs) / len(rs), 4),
             "mean_mae_pct": round(sum(x["mae_pct"] for x in rs) / len(rs), 4),
         })
-    return rows
+
+    obs_rows = []
+    for (label, style, h), rs in sorted(obs.items()):
+        rets = [x["return_pct"] for x in rs]
+        obs_rows.append({
+            "label": label, "style": style, "horizon_sessions": h,
+            "category": CATEGORY.get(label, "observation"),
+            "n_observations": len(rs),
+            "sufficient_sample": len(rs) >= MIN_SAMPLE,
+            "mean_forward_return_pct": round(sum(rets) / len(rets), 4),
+            "median_forward_return_pct": round(_median(rets), 4),
+            "note": "Descriptive forward price move. NOT a simulated trade; no win rate or profit factor.",
+        })
+    return {"trade_stats": trade_rows, "observations": obs_rows}
