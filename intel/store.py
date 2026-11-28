@@ -145,7 +145,38 @@ class JsonFileStore(Store):
             f.write(json.dumps(entry, separators=(",", ":")) + "\n")
 
     def read_recommend_history(self, symbol=None, limit=None):
-        path = os.path.join(self.root, "recommend_history.jsonl")
+        return self._read_jsonl("recommend_history.jsonl", symbol, limit)
+
+    # ---- Phase 5: company-intelligence registry + state + append-only history ----
+    def get_news(self):
+        return self._read(os.path.join(self.root, "news.json"))
+
+    def put_news(self, data):
+        self._atomic_write(os.path.join(self.root, "news.json"), data)
+
+    def get_news_state(self):
+        return self._read(os.path.join(self.root, "news_state.json"))
+
+    def put_news_state(self, data):
+        self._atomic_write(os.path.join(self.root, "news_state.json"), data)
+
+    def append_news_history(self, entry):
+        """Append-only: historical records are NEVER modified or deleted."""
+        path = os.path.join(self.root, "news_history.jsonl")
+        os.makedirs(self.root, exist_ok=True)
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, separators=(",", ":")) + "\n")
+
+    def read_news_history(self, symbol=None, limit=None):
+        return self._read_jsonl("news_history.jsonl", symbol, limit)
+
+    def news_history_hashes(self):
+        """Set of dedup_hash already in history, so reruns add no duplicates."""
+        return {e.get("dedup_hash") for e in self._read_jsonl("news_history.jsonl") if e.get("dedup_hash")}
+
+    # ---- shared jsonl reader ----
+    def _read_jsonl(self, fname, symbol=None, limit=None):
+        path = os.path.join(self.root, fname)
         out = []
         try:
             with open(path, encoding="utf-8") as f:

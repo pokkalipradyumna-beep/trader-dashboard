@@ -507,11 +507,70 @@ def _system_read(path, qs):
         rec = (rc or {}).get("stocks", {}).get(sym.upper()) if rc else None
         if rec:
             hist = store.read_recommend_history(sym.upper(), limit=12) if store else []
+            rec = _merge_news_factors(store, sym, rec)  # read-only; NEVER changes labels/history
             return {"generated": True, "methodology_version": (rc or {}).get("methodology_version"),
                     "params": (rc or {}).get("params"), "stock": rec, "history_tail": hist}
         return {"symbol": sym, "generated": False,
                 "message": "No recommendation record yet for this stock."}
+    # ---- Phase 5: Company & News Intelligence (read-only) ----
+    if path == "/api/system/news" or path == "/api/system/news/overview":
+        nw = store.get_news() if store else None
+        if not nw:
+            return {"generated": False, "message": "News not generated yet. Run python -m intel.scan_news."}
+        if path == "/api/system/news/overview":
+            return {"generated": True, "generated_at": nw.get("generated_at"),
+                    "methodology_version": nw.get("methodology_version"),
+                    "universe_size": nw.get("universe_size"), "active_events": nw.get("active_events"),
+                    "counts": nw.get("counts"), "source_status": nw.get("source_status"),
+                    "limits": nw.get("limits"), "limitations": nw.get("limitations")}
+        light = {k: v for k, v in nw.items() if k != "stocks"}
+        light["generated"] = True
+        light["symbols"] = sorted((nw.get("stocks") or {}).keys())
+        return light
+    if path == "/api/system/news/stock":
+        sym = (qs.get("symbol") or [""])[0]
+        if not sym:
+            return {"error": "missing symbol"}
+        nw = store.get_news() if store else None
+        rec = (nw or {}).get("stocks", {}).get(sym.upper()) if nw else None
+        if rec:
+            hist = store.read_news_history(sym.upper(), limit=50) if store else []
+            return {"generated": True, "methodology_version": (nw or {}).get("methodology_version"),
+                    "stock": rec, "history_count": len(hist), "history_tail": hist[-25:]}
+        return {"symbol": sym, "generated": False,
+                "message": "No company-intelligence record yet for this stock."}
     return {"error": "unknown system endpoint"}
+
+
+def _merge_news_factors(store, sym, rec):
+    """Fill the Phase-4 `news_factors` slot at SERVE TIME from the separate news
+    store. This is read-only context: it NEVER changes a recommendation label,
+    eligibility, evidence, risk/reward, sizing, or the stored record/history."""
+    try:
+        nw = store.get_news() if store else None
+        nrec = (nw or {}).get("stocks", {}).get(sym.upper()) if nw else None
+        if not nrec:
+            return rec
+        events = nrec.get("events", [])
+        high = [e for e in events if e.get("materiality") == "HIGH"]
+        med = [e for e in events if e.get("materiality") == "MEDIUM"]
+        nf = {"as_of": nrec.get("last_collected_at"), "stale": nrec.get("stale", False),
+              "source_status": nrec.get("source_status"),
+              "high_count": len(high), "medium_count": len(med),
+              "recent_material": [{"category": e["category"], "materiality": e["materiality"],
+                                   "headline": e["headline"], "source": e["source"],
+                                   "source_class": e["source_class"], "why": e["why"],
+                                   "published_at": e["published_at"], "url": e["url"]}
+                                  for e in (high + med)[:5]],
+              "note": "Context only — never changes the recommendation, which is computed from price/regime/backtest."}
+        import copy
+        rec = copy.deepcopy(rec)
+        for style in (rec.get("styles") or {}).values():
+            if isinstance(style, dict):
+                style["news_factors"] = nf
+        return rec
+    except Exception:  # noqa: BLE001 — news context is best-effort, never fatal
+        return rec
 
 
 class Handler(BaseHTTPRequestHandler):

@@ -1393,6 +1393,7 @@ function renderDetail(d) {
       <button data-anchor="d-regime">Regime</button>
       <button data-anchor="d-optimize">Backtest</button>
       <button data-anchor="d-recommend">Recommendation</button>
+      <button data-anchor="d-intel">Intelligence</button>
       <button data-anchor="d-fundamentals">Fundamentals</button>
       <button data-anchor="d-news">News</button></nav>
     <section class="d-sec" id="d-analysis">
@@ -1419,11 +1420,13 @@ function renderDetail(d) {
       <div id="optimizeBox"><div class="scanhint"><span class="spinner"></span>Loading backtest results…</div></div></section>
     <section class="d-sec" id="d-recommend"><h2 class="d-h"><span class="d-num">4</span>System recommendation <span class="d-tag">independent · not advice</span></h2>
       <div id="recommendBox"><div class="scanhint"><span class="spinner"></span>Loading system recommendation…</div></div></section>
-    <section class="d-sec"><h2 class="d-h"><span class="d-num">5</span>Trading perspectives — how to trade this</h2>
+    <section class="d-sec" id="d-intel"><h2 class="d-h"><span class="d-num">5</span>Company intelligence <span class="d-tag">facts only · classified by rule</span></h2>
+      <div id="intelBox"><div class="scanhint"><span class="spinner"></span>Loading company intelligence…</div></div></section>
+    <section class="d-sec"><h2 class="d-h"><span class="d-num">6</span>Trading perspectives — how to trade this</h2>
       <div id="perspectives"><div class="scanhint"><span class="spinner"></span>Analysing across timeframes…</div></div></section>`;
 
   // ---- Section 2: Fundamentals & quality ----
-  html += `<section class="d-sec" id="d-fundamentals"><h2 class="d-h"><span class="d-num">6</span>Fundamentals &amp; quality</h2><div class="d-grid">`;
+  html += `<section class="d-sec" id="d-fundamentals"><h2 class="d-h"><span class="d-num">7</span>Fundamentals &amp; quality</h2><div class="d-grid">`;
   if (q && q.available) {
     const qcls = { PASS: "ok", NEAR: "near", FAIL: "no" }[q.quality] || "";
     const vcls = { CHEAP: "ok", FAIR: "near", EXPENSIVE: "no" }[q.valuation] || "";
@@ -1440,7 +1443,7 @@ function renderDetail(d) {
   html += `</div></section>`;
 
   // ---- Section 3: Valuation ----
-  html += `<section class="d-sec"><h2 class="d-h"><span class="d-num">7</span>Valuation</h2><div class="d-grid">`;
+  html += `<section class="d-sec"><h2 class="d-h"><span class="d-num">8</span>Valuation</h2><div class="d-grid">`;
   if (val && val.applicable) {
     const up = val.upside_pct;
     const upPill = val.flag
@@ -1462,7 +1465,7 @@ function renderDetail(d) {
   const coName = (q && q.name) || sym.replace(/\.(NS|BO)$/i, "");
   const seg = q && q.type ? (q.type === "bank" ? "Banking / financials" : q.type) : null;
   const infoRow = (l, val2) => `<div class="row"><span>${l}</span><span class="r-v">${val2}</span></div>`;
-  html += `<section class="d-sec"><h2 class="d-h"><span class="d-num">8</span>Company information</h2><div class="d-grid">
+  html += `<section class="d-sec"><h2 class="d-h"><span class="d-num">9</span>Company information</h2><div class="d-grid">
       <div class="block"><h3>Overview</h3>
         ${infoRow("Company", coName)}
         ${infoRow("Symbol", sym)}
@@ -1474,7 +1477,7 @@ function renderDetail(d) {
     </div></section>`;
 
   // ---- Section 6: Latest news (facts only — headline, source, date, link) ----
-  html += `<section class="d-sec" id="d-news"><h2 class="d-h"><span class="d-num">9</span>Latest news</h2>
+  html += `<section class="d-sec" id="d-news"><h2 class="d-h"><span class="d-num">10</span>Latest news</h2>
       <div id="newsBox"><div class="scanhint"><span class="spinner"></span>Loading news…</div></div></section>`;
 
   $("detailPanel").innerHTML = html;
@@ -1484,6 +1487,7 @@ function renderDetail(d) {
   loadRegime(d.symbol);// async: fills the Market-regime section (TIS Phase 2, independent engine)
   loadOptimize(d.symbol);// async: fills the Strategy-backtest section (TIS Phase 3, walk-forward)
   loadRecommend(d.symbol);// async: fills the System-recommendation section (TIS Phase 4)
+  loadIntel(d.symbol); // async: fills the Company-intelligence section (TIS Phase 5, facts-only)
   loadPerspectives(d); // async: fills the Trading-perspectives section (daily + delayed intraday)
   loadNews(d.symbol);  // async: fills the Latest-news section (Google News RSS, facts only)
 }
@@ -1638,8 +1642,13 @@ function recStyleCard(label, s, p) {
       ${row("ATR", s.atr)}${row("Support", s.support)}${row("Resistance", s.resistance)}</div>
     <div class="rec-size"><b>Sizing</b> (example ₹${(sz.capital_example || 0).toLocaleString("en-IN")}): ${sz.shares || 0} shares · ${sz.binding_limit || "—"}-limited · risk ${sz.actual_risk_pct != null ? sz.actual_risk_pct + "%" : "—"} · alloc ${sz.actual_alloc_pct != null ? sz.actual_alloc_pct + "%" : "—"}<div class="rec-dim">${_esc(sz.formula || "")} · a backtested/last-close entry is not a guaranteed live fill.</div></div>` : "";
   const costs = s.costs || {};
+  const nf = s.news_factors || {};
+  const newsWarn = (nf.high_count > 0)
+    ? `<div class="rec-newswarn">⚠ ${nf.high_count} high-materiality development${nf.high_count > 1 ? "s" : ""} (${_esc((nf.recent_material || [])[0] ? nf.recent_material[0].category : "")}) — context only, see Company intelligence below. <span class="rec-dim">This does not change the recommendation.</span></div>`
+    : "";
   return `<div class="rec-card">
     <div class="rec-card-h"><b>${label}</b>${b}<span class="rec-ev">Evidence: ${s.evidence}</span></div>
+    ${newsWarn}
     <div class="rec-badges">${regBadge(REG_TREND, rg2.trend)} ${regBadge(REG_VOL, rg2.volatility)}${rg2.reversal === "POTENTIAL_REVERSAL" ? ' <span class="reg-badge rev">⚠ reversal</span>' : ""}</div>
     <div class="rec-cfg">Config: <b>${_esc(cfg.label || cfg.id || "—")}</b> · own walk-forward: ${cr.oos_trades || 0} OOS trades, PF ${cr.profit_factor}, ${Math.round((cr.positive_fold_frac || 0) * 100)}% folds+ ${cr.passed ? "✓" : "✗"}</div>
     ${tradeBlock}
@@ -1679,6 +1688,61 @@ async function loadRecommend(sym) {
     <div class="rec-grid">${cards}</div>
     <div class="rec-verify">Source: ${_esc((st.provenance || {}).provider || "Yahoo")} · <b>independently verified: no</b> · corporate-action verified: no — provenance is kept separate from statistical evidence.</div>
     ${histRows ? `<div class="rec-hist"><div class="rec-panel-t">Recent recommendation changes</div>${histRows}</div>` : ""}`;
+}
+
+/* ---------- Company intelligence (TIS Phase 5 — facts only, rule-classified) ---------- */
+const INTEL_MAT = { HIGH: ["warn", "HIGH"], MEDIUM: ["muted", "MEDIUM"], LOW: ["muted", "LOW"] };
+const INTEL_SRC = {
+  OFFICIAL_VERIFIED: ["ok", "Official / verified"], PROVIDER_SOURCED: ["", "Provider-sourced"],
+  REPORTED: ["near", "Reported (media)"], UNAVAILABLE: ["muted", "Unavailable"],
+};
+const INTEL_CAT = {
+  RESULTS: "Results", DIVIDEND: "Dividend", BONUS_SPLIT: "Bonus/Split", RIGHTS_BUYBACK: "Rights/Buyback",
+  MA_DEMERGER: "M&A/Demerger", PROMOTER_PLEDGE: "Promoter/Pledge", MANAGEMENT: "Management",
+  REGULATORY: "Regulatory", ORDER_BIZ: "Orders/Business", RATING: "Rating", BOARD_MEETING: "Board meeting",
+  SHAREHOLDING: "Shareholding", MARKET_NOISE: "Market commentary", OTHER: "Other",
+};
+function intelEvent(e) {
+  const m = INTEL_MAT[e.materiality] || ["muted", e.materiality];
+  const sc = INTEL_SRC[e.source_class] || ["muted", e.source_class];
+  const when = e.published_at ? new Date(e.published_at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "date n/a";
+  const link = e.url ? `<a href="${_esc(e.url)}" target="_blank" rel="noopener" class="intel-link">source ↗</a>` : "";
+  return `<div class="intel-ev">
+    <div class="intel-ev-h"><span class="intel-badge ${m[0]}">${m[1]}</span>
+      <span class="intel-cat">${_esc(INTEL_CAT[e.category] || e.category)}</span>
+      <span class="intel-src ${sc[0]}">${sc[1]}</span></div>
+    <div class="intel-head">${_esc(e.headline)}</div>
+    <div class="intel-meta">${_esc(e.source || "")} · ${when} ${link}</div>
+    <div class="intel-why">${_esc(e.why || "")}</div></div>`;
+}
+async function loadIntel(sym) {
+  const box = $("intelBox");
+  if (!box) return;
+  let j;
+  try { j = await fetch("/api/system/news/stock?symbol=" + encodeURIComponent(sym)).then((r) => r.json()); }
+  catch (e) { box.innerHTML = `<div class="note">Company intelligence unavailable (offline).</div>`; return; }
+  if (!j || !j.generated || !j.stock) {
+    box.innerHTML = `<div class="note">No company intelligence on file yet. It is collected as an offline, facts-only batch (no sentiment, no AI).</div>`;
+    return;
+  }
+  const st = j.stock, events = st.events || [], ss = st.source_status || {};
+  const stale = st.stale ? `<span class="intel-stale">⚠ data may be stale</span>` : "";
+  const srcLine = `<div class="intel-srcrow">
+    <span class="intel-src ${INTEL_SRC.PROVIDER_SOURCED[0]}">Yahoo: ${_esc(ss.yahoo || "—")}</span>
+    <span class="intel-src ${INTEL_SRC.REPORTED[0]}">News: ${_esc(ss.google_news || "—")}</span>
+    <span class="intel-src muted">NSE: ${_esc(ss.nse || "UNAVAILABLE")}</span>
+    <span class="intel-src muted">BSE: ${_esc(ss.bse || "UNAVAILABLE")}</span></div>`;
+  const intro = `<div class="rec-intro">Facts-only company intelligence, classified by <b>deterministic rules</b> (no AI, no sentiment). A rule-assigned materiality is <b>not</b> proof an event is genuinely material, and headlines are <b>reports</b>, not confirmed facts. Collected ${st.last_collected_at ? new Date(st.last_collected_at).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "—"}. ${stale}</div>`;
+  if (!events.length) {
+    box.innerHTML = `${intro}${srcLine}<div class="note">No recent classified events in the active window. Official exchange filings (NSE/BSE) are <b>unavailable</b> for automated collection.</div>`;
+    return;
+  }
+  const high = events.filter((e) => e.materiality === "HIGH");
+  const rest = events.filter((e) => e.materiality !== "HIGH");
+  box.innerHTML = `${intro}${srcLine}
+    ${high.length ? `<div class="intel-grp">High-materiality (${high.length})</div>${high.map(intelEvent).join("")}` : ""}
+    ${rest.length ? `<div class="intel-grp">Other developments (${rest.length})</div>${rest.slice(0, 10).map(intelEvent).join("")}` : ""}
+    <div class="intel-foot">${events.length} active event(s)${j.history_count ? ` · ${j.history_count} retained in immutable history` : ""}. Official NSE/BSE filings unavailable.</div>`;
 }
 
 /* ---------- search autocomplete (R-2) ---------- */
@@ -2244,6 +2308,7 @@ async function renderCoveragePage() {
     <div class="sec-h"><span>Data availability</span></div>
     <div class="cov-statrow">${dataStats}</div>
     <div id="covRecommend"></div>
+    <div id="covNews"></div>
     <div id="covOptimize"></div>
     <div id="covRegime"></div>
     <div class="sec-h"><span>Known limitations</span></div>
@@ -2262,8 +2327,33 @@ async function renderCoveragePage() {
     </table></div>`;
   setLive();
   loadCoverageRecommend();
+  loadCoverageNews();
   loadCoverageRegime();
   loadCoverageOptimize();
+}
+/* Phase 5: company-intelligence overview on the System page. */
+async function loadCoverageNews() {
+  const box = $("covNews");
+  if (!box) return;
+  let o;
+  try { o = await (await fetch("/api/system/news/overview")).json(); }
+  catch (e) { return; }
+  if (!o || o.generated === false) {
+    box.innerHTML = `<div class="sec-h"><span>Company intelligence (Phase 5)</span></div>
+      <div class="cov-note">Not generated yet. Run <code>python -m intel.scan_news</code>.</div>`;
+    return;
+  }
+  const c = o.counts || {}, mat = c.by_materiality || {}, src = c.by_source_class || {}, ss = o.source_status || {};
+  const stat = (v, l, cls) => `<div class="cov-stat ${cls || ""}"><div class="cov-v">${v}</div><div class="cov-l">${l}</div></div>`;
+  box.innerHTML = `
+    <div class="sec-h"><span>Company intelligence</span><span class="mk-sub">method ${_esc(o.methodology_version || "")} · facts only</span></div>
+    <div class="cov-note">Deterministically classified, facts-only. <b>No AI, no sentiment, no prediction.</b> Materiality is a rule-assigned significance, not proof. Sources: Yahoo <b>${_esc(ss.yahoo || "—")}</b>, Google News <b>${_esc(ss.google_news || "—")}</b>, NSE/BSE <b>UNAVAILABLE</b> (official filings not accessible for automated collection).</div>
+    <div class="cov-statrow">
+      ${stat(o.active_events || 0, "Active events")}
+      ${stat(mat.HIGH || 0, "High materiality", "near")}
+      ${stat(src.PROVIDER_SOURCED || 0, "Provider-sourced")}
+      ${stat(src.REPORTED || 0, "Reported (media)")}</div>
+    <div class="cov-note cov-dim">${(o.limitations || []).slice(0, 3).map(_esc).join(" · ")}</div>`;
 }
 /* Phase 4: recommendation status counts per style on the System page. */
 async function loadCoverageRecommend() {
