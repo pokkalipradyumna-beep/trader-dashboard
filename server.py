@@ -562,6 +562,18 @@ def _system_read(path, qs):
         if rec:
             return {"generated": True, "stock": rec}
         return {"symbol": sym, "generated": False, "message": "No fundamental coverage record for this symbol."}
+    # ---- Phase 7: final audit (read-only) ----
+    if path == "/api/system/audit" or path == "/api/system/audit/overview":
+        fa_doc = store.get_final_audit() if store else None
+        if not fa_doc:
+            return {"generated": False, "message": "Final audit not generated yet. Run python -m intel.final_audit."}
+        if path == "/api/system/audit/overview":
+            return {k: v for k, v in fa_doc.items() if k != "stocks"} | {"generated": True}
+        sym = (qs.get("symbol") or [""])[0].upper()
+        if sym:
+            rec = (fa_doc.get("stocks") or {}).get(sym)
+            return {"generated": True, "stock": rec} if rec else {"symbol": sym, "generated": False}
+        return dict(fa_doc, generated=True)
     # ---- Phase 6: System monitoring (read-only) ----
     if path == "/api/system/health":
         h = store.get_health() if store else None

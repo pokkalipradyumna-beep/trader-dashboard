@@ -205,6 +205,13 @@ class JsonFileStore(Store):
     def put_fundamentals_coverage(self, data):
         self._atomic_write(os.path.join(self.root, "fundamentals_coverage.json"), data)
 
+    # ---- Phase 7: final audit (single derived file) ----
+    def get_final_audit(self):
+        return self._read(os.path.join(self.root, "final_audit.json"))
+
+    def put_final_audit(self, data):
+        self._atomic_write(os.path.join(self.root, "final_audit.json"), data)
+
     # ---- shared jsonl reader ----
     def _read_jsonl(self, fname, symbol=None, limit=None):
         path = os.path.join(self.root, fname)

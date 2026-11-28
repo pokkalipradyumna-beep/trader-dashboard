@@ -265,13 +265,14 @@ def main():
 
 
 def _build(out, universe):
+    nr.apply_display_review(out)
     by_cat, by_mat, by_src = {}, {}, {}
     total = 0
     for r in out.values():
         for e in r.get("events", []):
             total += 1
             by_cat[e["category"]] = by_cat.get(e["category"], 0) + 1
-            by_mat[e["materiality"]] = by_mat.get(e["materiality"], 0) + 1
+            by_mat[e["materiality_display"]] = by_mat.get(e["materiality_display"], 0) + 1
             by_src[e["source_class"]] = by_src.get(e["source_class"], 0) + 1
     return {"generated_at": _now_iso(), "methodology_version": nr.METHODOLOGY_VERSION,
             "universe_size": len(universe), "active_events": total,

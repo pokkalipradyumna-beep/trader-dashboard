@@ -123,3 +123,36 @@ def matches_company(headline, company_name, symbol):
         if re.search(r"\b" + re.escape(t) + r"\b", h):
             return True, "distinctive token '%s' present in headline" % t
     return False, "no distinctive company token in headline (ambiguous — not attached)"
+
+
+# ---- Phase 7 display review (does NOT change raw records or history) ----
+# A RESULTS headline is only HIGH if it reports an actual result from a
+# company-confirmed source. Media-reported results and previews/expectations
+# are capped at MEDIUM. Raw `materiality` stays as the rule assigned it.
+_PREVIEW_RX = re.compile(
+    r"\b(ahead of|what to expect|preview|likely|expected to|set to|to announce|"
+    r"to report|may|could|poised|eyes)\b", re.I)
+
+
+def review_materiality(category, materiality, source_class, headline):
+    """Return (display_materiality, note_or_None)."""
+    if category != "RESULTS":
+        return materiality, None
+    if _PREVIEW_RX.search(headline or ""):
+        if materiality == "HIGH":
+            return "MEDIUM", "Preview/expectation headline, not a reported result: capped at MEDIUM."
+        return materiality, None
+    if source_class == REPORTED and materiality == "HIGH":
+        return "MEDIUM", "Media-reported results (no company/exchange confirmation): capped at MEDIUM."
+    return materiality, None
+
+
+def apply_display_review(stocks):
+    """In-place: add materiality_display / materiality_note to every event."""
+    for rec in stocks.values():
+        for e in rec.get("events", []):
+            disp, note = review_materiality(e.get("category"), e.get("materiality"),
+                                            e.get("source_class"), e.get("headline"))
+            e["materiality_display"] = disp
+            e["materiality_note"] = note
+    return stocks
