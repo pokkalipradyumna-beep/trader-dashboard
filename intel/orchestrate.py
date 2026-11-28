@@ -155,11 +155,22 @@ def main():
     print("Pipeline run %s  mode=%s  jobs=%s" % (run_id, args.mode, jobs))
     try:
         for job in jobs:
+            # Upstream guard: if a dependency ran in THIS run and did not succeed,
+            # do not compute on its now-stale output (it would be stamped fresh).
+            bad_up = [d for d in JOBS[job][2]
+                      if any(x["job"] == d and x["status"] != "SUCCESS" for x in results)]
+            if bad_up:
+                print("--> %s SKIPPED (upstream failed this run: %s)" % (job, ", ".join(bad_up)))
+                results.append({"job": job, "status": "SKIPPED", "started_at": _now(),
+                                "finished_at": _now(), "duration_s": 0.0,
+                                "error": "upstream failed this run: " + ", ".join(bad_up),
+                                "output_tail": ""})
+                continue
             print("--> %s ..." % job)
             r = run_job(job)
             results.append(r)
             print("    %s in %.0fs%s" % (r["status"], r["duration_s"], "" if r["status"] == "SUCCESS" else " (" + str(r["error"]) + ")"))
-            # failure isolation: continue to remaining (independent/last-good-reading) jobs
+            # failure isolation: independent jobs still run; dependents are guarded above
     finally:
         _write_health(store, run_id, args.mode, results)
         release_lock(store)
