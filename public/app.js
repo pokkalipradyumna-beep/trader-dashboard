@@ -65,7 +65,7 @@ function showPage(name) {
   document.title = (name === "search" && currentSym) ? currentSym.replace(".NS", "") + " · Trader"
     : (PAGE_TITLES[name] ? PAGE_TITLES[name] + " · Trader" : "Trader");
   if (name === "search" && !chartReady) initChart();
-  if (name === "home") { loadHome(); loadCommoditiesHome(); }
+  if (name === "home") { loadHome(); loadCommoditiesHome(); loadHomeOutlook(); }
   if (name === "dashboard") loadHoldings();
   if (name === "watchlist") loadWatchlist();
   if (name === "screeners") loadScreeners();
@@ -1676,13 +1676,15 @@ function cmdTile(c) {
   const chgCls = chg == null ? "" : chg >= 0 ? "up" : "down";
   const sw = (c.horizons || {}).swing || {};
   const rec = sw.recommendation || "—";
+  const ev = sw.evidence_strength;
+  const evHtml = ev ? `<span class="cmd-ev" title="How much the evidence supports this swing call">Ev: ${_esc(ev)}</span>` : "";
   const stale = s.stale ? `<span class="cmd-stale" title="Last data ${s.age_days} days old">⚠ stale</span>` : "";
-  return `<button class="cmd-tile" data-sym="${_esc(c.symbol)}" type="button">
+  return `<button class="cmd-tile" data-sym="${_esc(c.symbol)}" type="button" title="${_esc(c.name)} — tap for full commodity intelligence">
     <div class="cmd-tile-h"><span class="cmd-name">${_esc(c.name)}</span><span class="cmd-kind">${CMD_KIND[c.kind] || c.kind}</span></div>
     <div class="cmd-price">${cmdFmt(s.price, c.currency)} <span class="cmd-unit">${_esc(c.unit)}</span></div>
     <div class="cmd-row"><span class="cmd-chg ${chgCls}">${chg == null ? "—" : (chg >= 0 ? "▲ +" : "▼ ") + chg + "%"}</span>
       <span class="cmd-rec ${CMD_REC[rec] || "muted"}">${_esc(rec)}</span></div>
-    <div class="cmd-meta">Prev ${cmdFmt(s.previous_close, c.currency)} · ${_esc(s.last_session || "—")} ${stale}</div>
+    <div class="cmd-meta">Prev ${cmdFmt(s.previous_close, c.currency)} · ${_esc(s.last_session || "—")} ${evHtml} ${stale}</div>
   </button>`;
 }
 async function loadCommoditiesHome() {
@@ -1703,6 +1705,40 @@ async function loadCommoditiesHome() {
     `<div class="cmd-asof">Source: Yahoo (delayed) · updated ${asof} · <button class="cmd-openall" data-page="commodities" type="button">see all ${j.instrument_count} →</button></div>`;
   box.querySelectorAll(".cmd-tile").forEach((b) => b.addEventListener("click", () => { showPage("commodities"); setTimeout(() => openCommodity(b.dataset.sym), 60); }));
   const oa = box.querySelector(".cmd-openall"); if (oa) oa.addEventListener("click", () => showPage("commodities"));
+}
+// Predictive-outlook market summary (reuses /api/system/outlook/overview; never
+// re-computes). Shows the directional lean per horizon as a stacked bar.
+let OUTLOOK_SUMMARY_LOADED = false;
+async function loadHomeOutlook() {
+  const box = $("homeOutlook"); if (!box) return;
+  let j;
+  try { j = await fetch("/api/system/outlook/overview").then((r) => r.json()); }
+  catch (e) { box.innerHTML = `<div class="mk-empty">Market outlook unavailable (offline).</div>`; return; }
+  if (!j || !j.generated || !j.summary) { box.innerHTML = `<div class="mk-empty">Market outlook not generated yet.</div>`; return; }
+  const dc = j.summary.direction_counts || {};
+  const HZ = [["short_term", "Short-term"], ["swing", "Swing"], ["long_term", "Long-term"]];
+  const bucket = (c) => {
+    const bull = (c["BULLISH"] || 0) + (c["MODERATELY BULLISH"] || 0);
+    const bear = (c["BEARISH"] || 0) + (c["MODERATELY BEARISH"] || 0);
+    const neu = (c["NEUTRAL"] || 0);
+    const ins = (c["INSUFFICIENT EVIDENCE"] || 0);
+    return { bull, bear, neu, ins, total: bull + bear + neu + ins };
+  };
+  const rows = HZ.map(([k, label]) => {
+    const b = bucket(dc[k] || {});
+    const t = b.total || 1;
+    const pct = (x) => (100 * x / t).toFixed(1) + "%";
+    const lean = b.bull > b.bear ? ["up", "Bullish lean"] : b.bear > b.bull ? ["down", "Bearish lean"] : ["flat", "Mixed"];
+    return `<div class="ohz">
+      <div class="ohz-h"><b>${label}</b><span class="ohz-lean ${lean[0]}">${lean[1]}</span></div>
+      <div class="ohz-bar" title="${b.bull} bullish · ${b.neu} neutral · ${b.bear} bearish · ${b.ins} insufficient">
+        <span class="ob-bull" style="width:${pct(b.bull)}"></span><span class="ob-neu" style="width:${pct(b.neu)}"></span>
+        <span class="ob-bear" style="width:${pct(b.bear)}"></span><span class="ob-ins" style="width:${pct(b.ins)}"></span></div>
+      <div class="ohz-legend"><span class="ol-b up">▲ ${b.bull} bullish</span><span class="ol-b">${b.neu} neutral</span><span class="ol-b down">▼ ${b.bear} bearish</span>${b.ins ? `<span class="ol-b muted">${b.ins} n/a</span>` : ""}</div>
+    </div>`;
+  }).join("");
+  box.innerHTML = `<div class="ohz-grid">${rows}</div>
+    <div class="ohz-note">Evidence-based directional lean, not a probability or a BUY/SELL call. Long-term leans are capped to LOW confidence where fundamentals are unavailable (177 of 201 stocks). Open any stock for its full outlook and recommendation.</div>`;
 }
 async function loadCommoditiesPage() {
   const box = $("commoditiesBody");
@@ -2111,7 +2147,7 @@ async function addHolding(sym, label) {
 }
 
 /* ---------- Home (suggestions) ---------- */
-let suggestions = [], activeFilter = "ALL", priceBand = "";
+let suggestions = [], activeFilter = "ALL", priceBand = "", homeLimit = 9;
 const PRICE_BANDS = [{ v: "", t: "All prices" }, { v: "penny", t: "Penny < ₹50" }, { v: "low", t: "₹50–200" }, { v: "mid", t: "₹200–1000" }, { v: "high", t: "Over ₹1000" }];
 function inBand(price, band) {
   if (!band) return true;
@@ -2234,9 +2270,9 @@ function renderFilters() {
         <label class="ftl">Sort <select id="fSort" class="fsel">${sortOpts}</select></label>
       </div></div>`;
   f.querySelectorAll("[data-f]").forEach((b) =>
-    b.addEventListener("click", () => { activeFilter = b.dataset.f; renderFilters(); renderHomeCards(); }));
+    b.addEventListener("click", () => { activeFilter = b.dataset.f; homeLimit = 9; renderFilters(); renderHomeCards(); }));
   const ps = document.getElementById("fPrice");
-  if (ps) ps.addEventListener("change", () => { priceBand = ps.value; renderHomeCards(); });
+  if (ps) ps.addEventListener("change", () => { priceBand = ps.value; homeLimit = 9; renderHomeCards(); });
   const ss = document.getElementById("fSort");
   if (ss) ss.addEventListener("change", () => { sortMode = ss.value; renderHomeCards(); });
 }
@@ -2252,16 +2288,20 @@ function renderHomeStats() {
   const box = $("homeStats");
   if (!box) return;
   if (!suggestions.length) { box.innerHTML = ""; return; }
-  const strong = suggestions.filter((x) => x.category === "STRONG BUY").length;
-  const wait = suggestions.filter((x) => x.category === "WAIT").length;
+  const n = (cat) => suggestions.filter((x) => x.category === cat).length;
   const chgs = suggestions.map((x) => x.chg1w).filter((v) => v != null);
   const avg = chgs.length ? chgs.reduce((a, b) => a + b, 0) / chgs.length : null;
-  const card = (cls, ic, v, l) => `<div class="statcard ${cls}"><div class="st-ic">${statIcon(ic)}</div><div class="st-t"><div class="st-v">${v}</div><div class="st-l">${l}</div></div></div>`;
+  // v = value, l = label, tip = plain-language explanation shown on hover.
+  const card = (cls, v, l, tip) => `<div class="statcard ${cls}" title="${tip.replace(/"/g, "&quot;")}">
+    <div class="st-v">${v}</div><div class="st-l">${l}<span class="st-i">i</span></div></div>`;
   box.innerHTML =
-    card("green", "up", suggestions.length, "Total Picks") +
-    card("green", "star", strong, "Strong Buy") +
-    card("amber", "clock", wait, "Wait") +
-    card(avg == null ? "blue" : (avg >= 0 ? "green" : "red"), "up", avg == null ? "—" : (avg >= 0 ? "+" : "") + avg.toFixed(1) + "%", "Avg 1W Return");
+    card("blue", suggestions.length, "Scanned", "Stocks in your universe scanned for the weekly 9/21·21/50 method today.") +
+    card("green", n("STRONG BUY"), "Strong Buy", "Both the 9/21 and 21/50 weekly EMA crossovers are bullish and aligned — the strongest method signal.") +
+    card("green", n("BUY"), "Buy", "A fresh weekly 9/21 bullish crossover (entry trigger).") +
+    card("blue", n("HOLD"), "Hold", "In a weekly uptrend but no new entry trigger this week.") +
+    card("amber", n("WAIT"), "Wait", "No valid setup right now — stand aside until a signal forms.") +
+    card("red", n("SELL"), "Sell", "A weekly bearish crossover — exit or avoid a long (not a short instruction).") +
+    card(avg == null ? "blue" : (avg >= 0 ? "green" : "red"), avg == null ? "—" : (avg >= 0 ? "+" : "") + avg.toFixed(1) + "%", "Avg 1W move", "Average 1-week price change across the scanned universe. A market gauge, not a strategy return.");
 }
 function wireStockCards(box) {
   box.querySelectorAll(".card").forEach((el) =>
@@ -2295,9 +2335,19 @@ function renderHomeCards() {
   const box = $("homeCards");
   const rows = sortRows(suggestions.filter((x) =>
     (activeFilter === "ALL" || x.category === activeFilter) && inBand(x.price, priceBand)));
-  box.innerHTML = rows.map(cardHTML).join("")
-    || stateBox({ icon: "🗂️", title: "Nothing here", msg: "No stocks match these filters — try another category or price range." });
+  if (!rows.length) {
+    box.innerHTML = stateBox({ icon: "🗂️", title: "Nothing here", msg: "No stocks match these filters — try another category or price range." });
+    return;
+  }
+  // Keep the homepage short: render a limited set, with a "Show more" control.
+  const shown = rows.slice(0, homeLimit);
+  box.innerHTML = `<div class="stocklist">${shown.map(cardHTML).join("")}</div>` +
+    (rows.length > homeLimit
+      ? `<button class="show-more" id="homeShowMore" type="button">Show ${Math.min(12, rows.length - homeLimit)} more <span class="sm-n">${rows.length - homeLimit} of ${rows.length} hidden</span></button>`
+      : (rows.length > 9 ? `<button class="show-more ghost" id="homeShowLess" type="button">Show fewer</button>` : ""));
   wireStockCards(box);
+  const sm = $("homeShowMore"); if (sm) sm.addEventListener("click", () => { homeLimit += 12; renderHomeCards(); });
+  const sl = $("homeShowLess"); if (sl) sl.addEventListener("click", () => { homeLimit = 9; renderHomeCards(); document.getElementById("browseAll").scrollIntoView({ behavior: "smooth", block: "start" }); });
 }
 /* ---- Markets curated landing (Phase R2) — picks + watchlist movers + fired alerts.
    Reuses the same scanner data + cardHTML; the full filterable grid stays below. */
@@ -2783,6 +2833,7 @@ async function loadCoverageRegime() {
 if ($("refreshCoverage")) $("refreshCoverage").addEventListener("click", () => withBtnLoading($("refreshCoverage"), "Refreshing…", renderCoveragePage));
 if ($("cmdSearch")) $("cmdSearch").addEventListener("input", (e) => { const d = $("commodityDetail"); if (d) d.classList.add("hidden"); const b = $("commoditiesBody"); if (b) b.classList.remove("hidden"); renderCommodityGrid(e.target.value); });
 if ($("refreshCommodities")) $("refreshCommodities").addEventListener("click", () => withBtnLoading($("refreshCommodities"), "Refreshing…", async () => { COMMODITIES_CACHE = null; await loadCommoditiesPage(); }));
+if ($("outlookExplore")) $("outlookExplore").addEventListener("click", () => { const gs = $("globalSearch"); if (gs) { window.scrollTo({ top: 0, behavior: "smooth" }); gs.focus(); } });
 
 /* ---------- Phase 0: backup / restore + data health ---------- */
 // Every piece of your data that lives only in this browser. Export/restore keeps
