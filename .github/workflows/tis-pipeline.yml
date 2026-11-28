@@ -1,0 +1,80 @@
+name: TIS Pipeline
+
+# Automated monitoring & scheduling for the Trader Intelligence System (Phase 6).
+# Runs the existing Phase 1-5 batches on GitHub's servers (independent of any
+# browser or computer), then commits the refreshed data back so Vercel redeploys.
+# No paid services; uses the built-in GITHUB_TOKEN (no secrets in the repo).
+
+on:
+  schedule:
+    - cron: "30 12 * * 1-5"   # 12:30 UTC Mon-Fri (18:00 IST, after NSE close) -> daily
+    - cron: "0 4 * * 0"        # 04:00 UTC Sun -> weekly (data + optimisation)
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Pipeline mode"
+        type: choice
+        options: [daily, weekly, full]
+        default: daily
+      only:
+        description: "Run a single job only (optional): data|regime|optimize|recommend|news"
+        type: string
+        default: ""
+  push:
+    paths:
+      - ".github/workflows/tis-pipeline.yml"   # editing THIS file triggers a controlled run
+                                               # (data commits never touch it -> no loop)
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tis-pipeline          # prevents overlapping runs (job locking at the CI level)
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Decide mode
+        id: decide
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            if [ "${{ github.event.schedule }}" = "0 4 * * 0" ]; then
+              echo "cmd=--mode weekly" >> "$GITHUB_OUTPUT"
+            else
+              echo "cmd=--mode daily" >> "$GITHUB_OUTPUT"
+            fi
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            if [ -n "${{ github.event.inputs.only }}" ]; then
+              echo "cmd=--only ${{ github.event.inputs.only }}" >> "$GITHUB_OUTPUT"
+            else
+              echo "cmd=--mode ${{ github.event.inputs.mode }}" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            # push (controlled run): a single, CI-friendly real job that collects
+            # live data and commits it back, demonstrating background execution.
+            echo "cmd=--only news" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run pipeline (stdlib only, no deps)
+        run: python -m intel.orchestrate ${{ steps.decide.outputs.cmd }}
+
+      - name: Commit refreshed data
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/
+          if git diff --cached --quiet; then
+            echo "No data changes to commit."
+          else
+            git commit -m "chore(ci): refresh TIS data [skip ci]"
+            git push
+          fi

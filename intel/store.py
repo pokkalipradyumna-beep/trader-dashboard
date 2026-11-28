@@ -174,6 +174,13 @@ class JsonFileStore(Store):
         """Set of dedup_hash already in history, so reruns add no duplicates."""
         return {e.get("dedup_hash") for e in self._read_jsonl("news_history.jsonl") if e.get("dedup_hash")}
 
+    # ---- Phase 6: pipeline health / monitoring (single file) ----
+    def get_health(self):
+        return self._read(os.path.join(self.root, "health.json"))
+
+    def put_health(self, data):
+        self._atomic_write(os.path.join(self.root, "health.json"), data)
+
     # ---- shared jsonl reader ----
     def _read_jsonl(self, fname, symbol=None, limit=None):
         path = os.path.join(self.root, fname)

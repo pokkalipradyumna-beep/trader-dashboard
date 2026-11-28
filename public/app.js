@@ -2305,6 +2305,7 @@ async function renderCoveragePage() {
   body.innerHTML = `
     <div class="cov-note"><b>${uni.universe_size}</b> stocks · source: ${_esc(uni.source || "")} · provider: ${_esc(uni.provider || "")} · last scan: ${when}.
       <span class="cov-warn">"Data available" is <b>not</b> "fully analysed" — optimisation and recommendations are separate and not run in this phase.</span></div>
+    <div id="covMonitor"></div>
     <div class="sec-h"><span>Data availability</span></div>
     <div class="cov-statrow">${dataStats}</div>
     <div id="covRecommend"></div>
@@ -2326,10 +2327,52 @@ async function renderCoveragePage() {
         <td class="cov-dim">${COV_LBL[r.recommendation_status] || r.recommendation_status}</td></tr>`).join("")}</tbody>
     </table></div>`;
   setLive();
+  loadCoverageMonitor();
   loadCoverageRecommend();
   loadCoverageNews();
   loadCoverageRegime();
   loadCoverageOptimize();
+}
+/* Phase 6: System monitoring — scheduled-job health, freshness, failures. */
+async function loadCoverageMonitor() {
+  const box = $("covMonitor");
+  if (!box) return;
+  let h;
+  try { h = await (await fetch("/api/system/health")).json(); }
+  catch (e) { return; }
+  if (!h || h.generated === false) {
+    box.innerHTML = `<div class="sec-h"><span>System monitoring</span></div>
+      <div class="cov-note">No pipeline run recorded yet. Scheduled via <b>GitHub Actions</b> (free tier). Manual run: GitHub → Actions → "TIS Pipeline" → Run workflow, or <code>python -m intel.orchestrate</code>.</div>`;
+    return;
+  }
+  const OVR = { OK: ["ok", "Operational"], DEGRADED: ["near", "Degraded"], FAILED: ["no", "Failed"] };
+  const ov = OVR[h.overall] || ["muted", h.overall || "—"];
+  const ago = (iso) => { if (!iso) return "never"; const m = Math.round((Date.now() - new Date(iso)) / 60000); return m < 60 ? m + "m ago" : m < 1440 ? Math.round(m / 60) + "h ago" : Math.round(m / 1440) + "d ago"; };
+  const JOBS = [["data", "Data"], ["regime", "Regime"], ["optimize", "Optimisation"], ["recommend", "Recommendations"], ["news", "News"]];
+  const jobRows = JOBS.map(([k, l]) => {
+    const j = (h.jobs || {})[k];
+    if (!j) return `<div class="mon-job"><span class="mon-jn">${l}</span><span class="mon-dim">not run yet</span></div>`;
+    const sc = j.last_status === "SUCCESS" ? "up" : "down";
+    return `<div class="mon-job">
+      <span class="mon-jn">${l}</span>
+      <span class="mon-st ${sc}">${j.last_status || "—"}</span>
+      <span class="mon-dim">last ${ago(j.last_run)} · ${j.last_duration_s != null ? Math.round(j.last_duration_s) + "s" : "—"} · ✓${j.success_count || 0}/✗${j.fail_count || 0}</span>
+      ${j.last_error ? `<span class="mon-err">${_esc(j.last_error)}</span>` : ""}</div>`;
+  }).join("");
+  const fr = h.freshness || {};
+  const frRows = Object.entries(fr).map(([k, v]) => {
+    const stale = v.age_hours != null && v.age_hours > 48;
+    return `<span class="reg-chip ${stale ? "" : ""}">${k}: ${v.age_hours != null ? v.age_hours + "h" : "—"}${stale ? " ⚠" : ""}</span>`;
+  }).join("");
+  const sch = h.schedule || {}, inf = h.infra || {};
+  box.innerHTML = `
+    <div class="sec-h"><span>System monitoring</span><span class="mk-sub">${_esc(h.methodology_version || "")} · ${_esc(inf.scheduler || "")}</span></div>
+    <div class="mon-top">
+      <span class="mon-overall ${ov[0]}">● ${ov[1]}</span>
+      <span class="mon-dim">last run ${ago(h.generated_at)} (${_esc(h.last_mode || "—")})</span></div>
+    <div class="mon-jobs">${jobRows}</div>
+    <div class="mon-fresh"><span class="reg-ctx-l">Output freshness</span> ${frRows}</div>
+    <div class="cov-note cov-dim">Schedule (UTC): daily ${_esc(sch.daily_utc || "—")} · weekly ${_esc(sch.weekly_utc || "—")}. ${_esc(sch.timezone_note || "")} · Infra: ${_esc(inf.scheduler || "")}, ${_esc(inf.cost || "")}, paid services: ${_esc(inf.paid_services || "none")}. Manual run via GitHub Actions "Run workflow".</div>`;
 }
 /* Phase 5: company-intelligence overview on the System page. */
 async function loadCoverageNews() {

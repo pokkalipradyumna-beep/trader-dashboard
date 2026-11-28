@@ -539,6 +539,15 @@ def _system_read(path, qs):
                     "stock": rec, "history_count": len(hist), "history_tail": hist[-25:]}
         return {"symbol": sym, "generated": False,
                 "message": "No company-intelligence record yet for this stock."}
+    # ---- Phase 6: System monitoring (read-only) ----
+    if path == "/api/system/health":
+        h = store.get_health() if store else None
+        if not h:
+            return {"generated": False,
+                    "message": "No pipeline run recorded yet. Scheduled via GitHub Actions; run python -m intel.orchestrate to populate."}
+        h = dict(h)
+        h["generated"] = True
+        return h
     return {"error": "unknown system endpoint"}
 
 

@@ -1027,3 +1027,21 @@ button{font-family:inherit}
 .intel-why{font-size:10.5px;color:var(--faint);line-height:1.5;font-style:italic}
 .intel-stale{font-size:11px;color:var(--warn);margin-left:6px}
 .intel-foot{font-size:11px;color:var(--faint);border-top:1px solid var(--line-soft);padding-top:8px;margin-top:8px}
+
+/* ===== TIS Phase 6: System monitoring ===== */
+.mon-top{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:10px}
+.mon-overall{font-size:13px;font-weight:700;padding:3px 10px;border-radius:999px;border:1px solid var(--line-soft)}
+.mon-overall.ok{color:var(--buy);background:rgba(34,197,94,.12)}
+.mon-overall.near{color:var(--warn);background:rgba(234,179,8,.12)}
+.mon-overall.no{color:var(--sell);background:rgba(239,68,68,.12)}
+.mon-dim{font-size:11.5px;color:var(--faint)}
+.mon-jobs{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:8px;margin-bottom:12px}
+.mon-job{display:flex;flex-wrap:wrap;align-items:center;gap:8px;background:var(--surface);border:1px solid var(--line-soft);
+  border-radius:var(--r-md);padding:8px 12px}
+.mon-jn{font-weight:600;font-size:13px;min-width:92px}
+.mon-st{font-size:11px;font-weight:700;padding:1px 8px;border-radius:999px}
+.mon-st.up{color:var(--buy);background:rgba(34,197,94,.12)}
+.mon-st.down{color:var(--sell);background:rgba(239,68,68,.12)}
+.mon-err{font-size:11px;color:var(--sell);flex-basis:100%}
+.mon-fresh{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:10px}
+@media(max-width:560px){.mon-jobs{grid-template-columns:1fr}}
