@@ -539,6 +539,12 @@ def _system_read(path, qs):
                     "stock": rec, "history_count": len(hist), "history_tail": hist[-25:]}
         return {"symbol": sym, "generated": False,
                 "message": "No company-intelligence record yet for this stock."}
+    # ---- Phase 7: outcome tracking (read-only) ----
+    if path == "/api/system/outcomes":
+        oc = store.get_outcomes() if store else None
+        if not oc:
+            return {"generated": False, "message": "Outcome tracking not generated yet. Run python -m intel.scan_outcomes."}
+        return dict(oc, generated=True)
     # ---- Phase 6: System monitoring (read-only) ----
     if path == "/api/system/health":
         h = store.get_health() if store else None

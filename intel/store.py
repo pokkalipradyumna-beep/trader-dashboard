@@ -181,6 +181,23 @@ class JsonFileStore(Store):
     def put_health(self, data):
         self._atomic_write(os.path.join(self.root, "health.json"), data)
 
+    # ---- Phase 7: outcome tracking (append-only events + single summary) ----
+    def read_outcome_events(self):
+        return self._read_jsonl("outcome_events.jsonl")
+
+    def append_outcome_event(self, entry):
+        """Append-only: existing outcome records are NEVER modified."""
+        path = os.path.join(self.root, "outcome_events.jsonl")
+        os.makedirs(self.root, exist_ok=True)
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, separators=(",", ":")) + "\n")
+
+    def get_outcomes(self):
+        return self._read(os.path.join(self.root, "outcomes.json"))
+
+    def put_outcomes(self, data):
+        self._atomic_write(os.path.join(self.root, "outcomes.json"), data)
+
     # ---- shared jsonl reader ----
     def _read_jsonl(self, fname, symbol=None, limit=None):
         path = os.path.join(self.root, fname)
