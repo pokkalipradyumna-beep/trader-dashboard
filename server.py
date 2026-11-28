@@ -454,6 +454,35 @@ def _system_read(path, qs):
                     "market": (reg or {}).get("market"), "stock": rec}
         return {"symbol": sym, "generated": False,
                 "message": "No regime record yet for this stock."}
+    # ---- Phase 3: Optimisation Engine (read-only; Phase 4 consumes these) ----
+    if path == "/api/system/optimize" or path == "/api/system/optimize/overview":
+        op = store.get_optimize() if store else None
+        if not op:
+            return {"generated": False,
+                    "message": "Optimisation not generated yet. Run python -m intel.scan_optimize."}
+        if path == "/api/system/optimize/overview":
+            return {"generated": True, "generated_at": op.get("generated_at"),
+                    "methodology_version": op.get("methodology_version"),
+                    "universe_size": op.get("universe_size"), "optimized": op.get("optimized"),
+                    "insufficient_evidence": op.get("insufficient_evidence"),
+                    "counts": op.get("counts"), "config_leaderboard": op.get("config_leaderboard"),
+                    "params": op.get("params"), "limitations": op.get("limitations"),
+                    "technical_debt": op.get("technical_debt")}
+        light = {k: v for k, v in op.items() if k != "stocks"}
+        light["generated"] = True
+        light["symbols"] = sorted((op.get("stocks") or {}).keys())
+        return light
+    if path == "/api/system/optimize/stock":
+        sym = (qs.get("symbol") or [""])[0]
+        if not sym:
+            return {"error": "missing symbol"}
+        op = store.get_optimize() if store else None
+        rec = (op or {}).get("stocks", {}).get(sym.upper()) if op else None
+        if rec:
+            return {"generated": True, "methodology_version": (op or {}).get("methodology_version"),
+                    "params": (op or {}).get("params"), "stock": rec}
+        return {"symbol": sym, "generated": False,
+                "message": "No optimisation record yet for this stock."}
     return {"error": "unknown system endpoint"}
 
 

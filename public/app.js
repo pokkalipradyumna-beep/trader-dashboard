@@ -1391,6 +1391,7 @@ function renderDetail(d) {
   let html = `<nav class="d-subnav">
       <button data-anchor="d-analysis" class="active">Analysis</button>
       <button data-anchor="d-regime">Regime</button>
+      <button data-anchor="d-optimize">Backtest</button>
       <button data-anchor="d-fundamentals">Fundamentals</button>
       <button data-anchor="d-news">News</button></nav>
     <section class="d-sec" id="d-analysis">
@@ -1413,11 +1414,13 @@ function renderDetail(d) {
     <div id="taSummaryWrap"></div>
     <section class="d-sec" id="d-regime"><h2 class="d-h"><span class="d-num">2</span>Market regime <span class="d-tag">independent analysis</span></h2>
       <div id="regimeBox"><div class="scanhint"><span class="spinner"></span>Loading regime analysis…</div></div></section>
-    <section class="d-sec"><h2 class="d-h"><span class="d-num">3</span>Trading perspectives — how to trade this</h2>
+    <section class="d-sec" id="d-optimize"><h2 class="d-h"><span class="d-num">3</span>Strategy backtest <span class="d-tag">walk-forward · out-of-sample</span></h2>
+      <div id="optimizeBox"><div class="scanhint"><span class="spinner"></span>Loading backtest results…</div></div></section>
+    <section class="d-sec"><h2 class="d-h"><span class="d-num">4</span>Trading perspectives — how to trade this</h2>
       <div id="perspectives"><div class="scanhint"><span class="spinner"></span>Analysing across timeframes…</div></div></section>`;
 
   // ---- Section 2: Fundamentals & quality ----
-  html += `<section class="d-sec" id="d-fundamentals"><h2 class="d-h"><span class="d-num">4</span>Fundamentals &amp; quality</h2><div class="d-grid">`;
+  html += `<section class="d-sec" id="d-fundamentals"><h2 class="d-h"><span class="d-num">5</span>Fundamentals &amp; quality</h2><div class="d-grid">`;
   if (q && q.available) {
     const qcls = { PASS: "ok", NEAR: "near", FAIL: "no" }[q.quality] || "";
     const vcls = { CHEAP: "ok", FAIR: "near", EXPENSIVE: "no" }[q.valuation] || "";
@@ -1434,7 +1437,7 @@ function renderDetail(d) {
   html += `</div></section>`;
 
   // ---- Section 3: Valuation ----
-  html += `<section class="d-sec"><h2 class="d-h"><span class="d-num">5</span>Valuation</h2><div class="d-grid">`;
+  html += `<section class="d-sec"><h2 class="d-h"><span class="d-num">6</span>Valuation</h2><div class="d-grid">`;
   if (val && val.applicable) {
     const up = val.upside_pct;
     const upPill = val.flag
@@ -1456,7 +1459,7 @@ function renderDetail(d) {
   const coName = (q && q.name) || sym.replace(/\.(NS|BO)$/i, "");
   const seg = q && q.type ? (q.type === "bank" ? "Banking / financials" : q.type) : null;
   const infoRow = (l, val2) => `<div class="row"><span>${l}</span><span class="r-v">${val2}</span></div>`;
-  html += `<section class="d-sec"><h2 class="d-h"><span class="d-num">6</span>Company information</h2><div class="d-grid">
+  html += `<section class="d-sec"><h2 class="d-h"><span class="d-num">7</span>Company information</h2><div class="d-grid">
       <div class="block"><h3>Overview</h3>
         ${infoRow("Company", coName)}
         ${infoRow("Symbol", sym)}
@@ -1468,7 +1471,7 @@ function renderDetail(d) {
     </div></section>`;
 
   // ---- Section 6: Latest news (facts only — headline, source, date, link) ----
-  html += `<section class="d-sec" id="d-news"><h2 class="d-h"><span class="d-num">7</span>Latest news</h2>
+  html += `<section class="d-sec" id="d-news"><h2 class="d-h"><span class="d-num">8</span>Latest news</h2>
       <div id="newsBox"><div class="scanhint"><span class="spinner"></span>Loading news…</div></div></section>`;
 
   $("detailPanel").innerHTML = html;
@@ -1476,6 +1479,7 @@ function renderDetail(d) {
   wireDetailSubnav();  // sticky Analysis/Regime/Fundamentals/News jump nav
   renderTASummary();   // optional plain-English summary (from selected indicators), when enabled
   loadRegime(d.symbol);// async: fills the Market-regime section (TIS Phase 2, independent engine)
+  loadOptimize(d.symbol);// async: fills the Strategy-backtest section (TIS Phase 3, walk-forward)
   loadPerspectives(d); // async: fills the Trading-perspectives section (daily + delayed intraday)
   loadNews(d.symbol);  // async: fills the Latest-news section (Google News RSS, facts only)
 }
@@ -1539,6 +1543,71 @@ async function loadRegime(sym) {
     <div class="reg-intro">Independent, rule-based regime read — <b>separate from</b> the weekly 9/21/50 trading signal above. Trend and volatility are classified separately; reversal needs ≥2 supporting signals. Method <code>${st.methodology_version || j.methodology_version || ""}</code>.</div>
     ${mktBanner}
     <div class="reg-grid">${["short_term", "swing", "long_term"].map((k) => regCard(k, hz[k])).join("")}</div>`;
+}
+
+/* ---------- Strategy backtest (TIS Phase 3 — walk-forward, out-of-sample) ---------- */
+const OPT_STATUS = {
+  COMPLETED: ["ok", "Reliable (out-of-sample)"],
+  INSUFFICIENT_EVIDENCE: ["near", "Insufficient evidence"],
+  FAILED: ["no", "Scan failed"], UNSUPPORTED: ["no", "Unsupported"], NOT_RUN: ["muted", "Not run"],
+};
+function optMetricRow(l, v, suf) { return v == null ? "" : `<div class="reg-iv"><span>${l}</span><span>${v}${suf || ""}</span></div>`; }
+async function loadOptimize(sym) {
+  const box = $("optimizeBox");
+  if (!box) return;
+  let j;
+  try { j = await fetch("/api/system/optimize/stock?symbol=" + encodeURIComponent(sym)).then((r) => r.json()); }
+  catch (e) { box.innerHTML = `<div class="note">Backtest results unavailable (offline).</div>`; return; }
+  if (!j || !j.generated || !j.stock) {
+    box.innerHTML = `<div class="note">No walk-forward backtest on file for this stock yet. It runs as an offline batch, independent of the live trading signal.</div>`;
+    return;
+  }
+  const s = j.stock, st = s.optimization_status || "NOT_RUN", sm = OPT_STATUS[st] || ["muted", st];
+  const p = j.params || {};
+  const intro = `<div class="reg-intro">Pre-registered indicator strategies tested <b>walk-forward</b> (train ${p.train || "?"}d → trade the next ${p.test || "?"}d out-of-sample, rolled forward), net of ${p.cost_per_side_pct != null ? p.cost_per_side_pct : 0.1}%/side costs. Long-only, daily. <b>Past performance is not predictive</b>; reliability is evidence strength, not a probability. Method <code>${s.methodology_version || ""}</code>.</div>`;
+  if (st !== "COMPLETED") {
+    box.innerHTML = `${intro}<div class="opt-head"><span class="reg-badge ${sm[0]}">${sm[1]}</span></div>
+      <div class="note">${_esc(s.reason || "Not enough reliable out-of-sample evidence to report a strategy for this stock.")} This is a valid, fail-closed result — the engine does not report a strategy it cannot stand behind.</div>`;
+    return;
+  }
+  const wf = s.walk_forward || {}, m = wf.metrics || {}, rel = wf.reliability || {};
+  const pc = (s.per_config || {})[s.best_config_overall] || {};
+  const byReg = pc.by_regime || {};
+  const regRow = (reg) => {
+    const rm = byReg[reg]; if (!rm) return "";
+    const cls = rm.expectancy_pct > 0 ? "up" : "down";
+    return `<div class="opt-reg"><span>${(REG_TREND[reg] ? REG_TREND[reg][1] : reg)}</span>
+      <span class="${cls}">${rm.expectancy_pct > 0 ? "+" : ""}${rm.expectancy_pct}%/trade · ${rm.trades} trades</span></div>`;
+  };
+  const otherConfigs = Object.entries(s.per_config || {})
+    .filter(([, v]) => v.oos && v.oos.trades >= (p.min_oos_trades || 15) && v.oos.expectancy_pct != null)
+    .sort((a, b) => b[1].oos.expectancy_pct - a[1].oos.expectancy_pct).slice(0, 5);
+  box.innerHTML = `${intro}
+    <div class="opt-head"><span class="reg-badge ${sm[0]}">${sm[1]}</span>
+      <span class="reg-badge ${s.confidence === "HIGH" ? "up" : "muted"}">Evidence: ${s.confidence}</span></div>
+    <div class="reg-grid">
+      <div class="reg-card"><div class="reg-card-h"><b>Best strategy</b></div>
+        <div class="opt-best">${_esc(pc.label || s.best_config_overall || "—")}</div>
+        <div class="reg-ivs">
+          ${optMetricRow("OOS total return", m.total_ret_pct, "%")}
+          ${optMetricRow("Trades (OOS)", m.trades)}
+          ${optMetricRow("Win rate", m.win_rate, "%")}
+          ${optMetricRow("Avg / trade", m.expectancy_pct, "%")}
+          ${optMetricRow("Profit factor", m.profit_factor)}
+          ${optMetricRow("Max drawdown", m.max_drawdown_pct, "%")}
+          ${optMetricRow("Avg hold", m.avg_bars_held, " bars")}</div></div>
+      <div class="reg-card"><div class="reg-card-h"><b>Best strategy by regime</b></div>
+        <div class="reg-dim" style="margin-bottom:6px">Avg return per trade, grouped by the market regime at entry.</div>
+        ${["BULLISH", "BEARISH", "SIDEWAYS", "UNCERTAIN"].map(regRow).join("") || '<div class="note">No per-regime breakdown.</div>'}</div>
+      <div class="reg-card"><div class="reg-card-h"><b>Reliability checks</b></div>
+        <div class="reg-ivs">
+          ${optMetricRow("Folds", rel.folds)}${optMetricRow("OOS trades", rel.oos_trades)}
+          ${optMetricRow("Positive folds", (rel.positive_folds != null ? rel.positive_folds + "/" + rel.folds : null))}
+          ${optMetricRow("Expectancy", rel.expectancy_pct, "%")}${optMetricRow("Profit factor", rel.profit_factor)}</div>
+        <div class="reg-asof">Gate: ≥${p.min_oos_trades} OOS trades, ≥${p.min_folds} folds, net-positive &amp; consistent.</div></div>
+    </div>
+    <div class="opt-leader"><div class="reg-dim">Other strategies (OOS avg/trade):</div>
+      ${otherConfigs.map(([cid, v]) => `<span class="reg-chip">${_esc(v.label)}: <b class="${v.oos.expectancy_pct > 0 ? "up" : "down"}">${v.oos.expectancy_pct > 0 ? "+" : ""}${v.oos.expectancy_pct}%</b></span>`).join("")}</div>`;
 }
 
 /* ---------- search autocomplete (R-2) ---------- */
@@ -2103,12 +2172,7 @@ async function renderCoveragePage() {
       <span class="cov-warn">"Data available" is <b>not</b> "fully analysed" — optimisation and recommendations are separate and not run in this phase.</span></div>
     <div class="sec-h"><span>Data availability</span></div>
     <div class="cov-statrow">${dataStats}</div>
-    <div class="sec-h"><span>Optimisation &amp; recommendation</span></div>
-    <div class="cov-statrow">
-      ${stat(opt.NOT_RUN || 0, "Optimisation: not run")}
-      ${stat(opt.COMPLETED || 0, "Optimisation: completed", "ok")}
-      ${stat((rec.AVAILABLE || 0), "Recommendation: available", "ok")}
-      ${stat((rec.NONE || 0), "Recommendation: none")}</div>
+    <div id="covOptimize"></div>
     <div id="covRegime"></div>
     <div class="sec-h"><span>Known limitations</span></div>
     <ul class="cov-lim">${(uni.limitations || []).map((x) => `<li>${_esc(x)}</li>`).join("")}</ul>
@@ -2126,6 +2190,40 @@ async function renderCoveragePage() {
     </table></div>`;
   setLive();
   loadCoverageRegime();
+  loadCoverageOptimize();
+}
+/* Phase 3: optimisation status + config leaderboard on the System page. */
+async function loadCoverageOptimize() {
+  const box = $("covOptimize");
+  if (!box) return;
+  let o;
+  try { o = await (await fetch("/api/system/optimize/overview")).json(); }
+  catch (e) { return; }
+  const stat = (v, l, cls) => `<div class="cov-stat ${cls || ""}"><div class="cov-v">${v}</div><div class="cov-l">${l}</div></div>`;
+  if (!o || o.generated === false) {
+    box.innerHTML = `<div class="sec-h"><span>Strategy optimisation (Phase 3)</span></div>
+      <div class="cov-note">Not generated yet. Run <code>python -m intel.scan_optimize</code>.</div>`;
+    return;
+  }
+  const c = o.counts || {}, p = o.params || {}, lb = o.config_leaderboard || {};
+  const regTop = lb.regime_top_configs || {};
+  const CLBL = { ema_9_21: "EMA 9/21", ema_20_50: "EMA 20/50", ema_50_200: "EMA 50/200", rsi_mom_14: "RSI mom", macd_12_26_9: "MACD", bb_breakout_20: "BB breakout", donchian_20_10: "Donchian" };
+  const regBlock = (reg) => {
+    const top = regTop[reg]; if (!top || !top.length) return "";
+    return `<div class="opt-regcol"><div class="reg-ctx-l">${(REG_TREND[reg] ? REG_TREND[reg][1] : reg)}</div>
+      ${top.map(([cid, e]) => `<div class="opt-reg"><span>${CLBL[cid] || cid}</span><span class="${e > 0 ? "up" : "down"}">${e > 0 ? "+" : ""}${e}%</span></div>`).join("")}</div>`;
+  };
+  box.innerHTML = `
+    <div class="sec-h"><span>Strategy optimisation</span><span class="mk-sub">method ${_esc(o.methodology_version || "")} · walk-forward</span></div>
+    <div class="cov-note">Pre-registered strategies tested <b>out-of-sample</b> (train ${p.train}d → trade next ${p.test}d, rolled), net of ${p.cost_per_side_pct}%/side. Reliability-gated: a strategy is reported only when the out-of-sample evidence passes the gate — otherwise <b>insufficient evidence</b> (a valid result). <b>Not predictions.</b></div>
+    <div class="cov-statrow">
+      ${stat(c.COMPLETED || 0, "Reliable (OOS)", "ok")}
+      ${stat(c.INSUFFICIENT_EVIDENCE || 0, "Insufficient evidence", "near")}
+      ${stat((c.FAILED || 0), "Failed", "no")}
+      ${stat((c.UNSUPPORTED || 0), "Unsupported", "no")}</div>
+    <div class="sec-h"><span>Which strategy works in which regime</span><span class="mk-sub">top configs by OOS avg/trade</span></div>
+    <div class="opt-regrow">${["BULLISH", "BEARISH", "SIDEWAYS", "UNCERTAIN"].map(regBlock).join("") || '<div class="cov-dim">No completed optimisations yet.</div>'}</div>
+    <div class="cov-note cov-dim">Technical debt: ${(o.technical_debt || []).map(_esc).join(" · ")}</div>`;
 }
 /* Phase 2: regime overview on the System page — market-wide vs sector vs the
    universe-wide distribution of individual-stock regimes (swing horizon). */

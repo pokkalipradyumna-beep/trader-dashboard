@@ -111,6 +111,19 @@ class JsonFileStore(Store):
     def put_regime_state(self, data):
         self._atomic_write(os.path.join(self.root, "regime_state.json"), data)
 
+    # ---- Phase 3: optimisation registry (single file) + resumable state ----
+    def get_optimize(self):
+        return self._read(os.path.join(self.root, "optimize.json"))
+
+    def put_optimize(self, data):
+        self._atomic_write(os.path.join(self.root, "optimize.json"), data)
+
+    def get_optimize_state(self):
+        return self._read(os.path.join(self.root, "optimize_state.json"))
+
+    def put_optimize_state(self, data):
+        self._atomic_write(os.path.join(self.root, "optimize_state.json"), data)
+
     # ---- append-only run log (audit) ----
     def append_run(self, entry):
         path = os.path.join(self.root, "scan_runs.jsonl")

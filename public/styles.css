@@ -958,3 +958,15 @@ button{font-family:inherit}
 .reg-chip{font-size:11.5px;color:var(--dim);background:var(--bg);border:1px solid var(--line-soft);
   padding:3px 8px;border-radius:999px}
 @media(max-width:560px){.reg-ivs{grid-template-columns:1fr}}
+
+/* ===== TIS Phase 3: Strategy backtest / optimisation ===== */
+.opt-head{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+.opt-best{font-size:16px;font-weight:700;color:var(--txt);margin-bottom:8px}
+.opt-reg{display:flex;justify-content:space-between;font-size:12.5px;padding:3px 0;border-bottom:1px solid var(--line-soft)}
+.opt-reg span:first-child{color:var(--faint)}
+.opt-leader{margin-top:12px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.opt-leader .up{color:var(--buy)}.opt-leader .down{color:var(--sell)}
+.opt-reg .up{color:var(--buy)}.opt-reg .down{color:var(--sell)}
+.opt-regrow{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:12px}
+.opt-regcol{background:var(--surface);border:1px solid var(--line-soft);border-radius:var(--r-md);padding:10px 12px}
+.opt-regcol .reg-ctx-l{margin-bottom:6px}
